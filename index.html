@@ -1,0 +1,176 @@
+<!doctype html>
+<html lang="pl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Profil trasy GPS offline</title>
+<link rel="manifest" href="manifest.json">
+<style>
+:root { --bg:#0f172a; --panel:#111827; --text:#e5e7eb; --muted:#9ca3af; --line:#38bdf8; --accent:#f59e0b; --bad:#ef4444; --ok:#22c55e; }
+* { box-sizing: border-box; }
+body { margin:0; font-family: system-ui, -apple-system, Segoe UI, sans-serif; background:var(--bg); color:var(--text); }
+header { padding:12px 14px; background:#020617; border-bottom:1px solid #1f2937; }
+h1 { font-size:18px; margin:0 0 4px 0; }
+.small { color:var(--muted); font-size:12px; }
+main { padding:10px; display:grid; gap:10px; }
+.panel { background:var(--panel); border:1px solid #1f2937; border-radius:14px; padding:10px; }
+.controls { display:flex; flex-wrap:wrap; gap:8px; align-items:center; }
+button, label.file { background:#1f2937; color:var(--text); border:1px solid #374151; padding:9px 11px; border-radius:10px; font-size:14px; }
+button:active, label.file:active { transform:translateY(1px); }
+input[type=file] { display:none; }
+canvas { width:100%; height:46vh; min-height:280px; display:block; background:#020617; border-radius:12px; touch-action:none; }
+.grid { display:grid; grid-template-columns: repeat(2, 1fr); gap:8px; }
+.tile { background:#020617; border:1px solid #1f2937; border-radius:12px; padding:9px; }
+.tile b { display:block; font-size:18px; margin-top:3px; }
+.status { font-size:14px; color:var(--muted); }
+.ok { color:var(--ok); } .bad { color:var(--bad); } .accent { color:var(--accent); }
+.range { width:100%; }
+@media (orientation:landscape) { main { grid-template-columns: 1.6fr 1fr; } canvas { height:72vh; } }
+</style>
+</head>
+<body>
+<header>
+  <h1>Profil trasy GPS offline</h1>
+  <div class="small">Pozycja z GPS, wysokość i profil z pliku GPX lub trasy wbudowanej.</div>
+</header>
+<main>
+<section class="panel">
+  <canvas id="profile"></canvas>
+  <input id="sim" class="range" type="range" min="0" max="1000" value="0">
+</section>
+<section class="panel">
+  <div class="controls">
+    <button id="gpsBtn">Start GPS</button>
+    <button id="wakeBtn">Ekran aktywny</button>
+    <label class="file">Wczytaj GPX<input id="file" type="file" accept=".gpx,application/gpx+xml,text/xml"></label>
+    <button id="fitBtn">Pokaż całość</button>
+  </div>
+  <p id="status" class="status">Wczytano trasę testową.</p>
+  <div class="grid">
+    <div class="tile">Kilometr trasy<b id="km">-</b></div>
+    <div class="tile">Wysokość z GPX<b id="ele">-</b></div>
+    <div class="tile">Do końca<b id="left">-</b></div>
+    <div class="tile">Odległość od śladu<b id="off">-</b></div>
+    <div class="tile">Najbliższy punkt<b id="idx">-</b></div>
+    <div class="tile">GPS accuracy<b id="acc">-</b></div>
+  </div>
+  <p class="small">Tryb offline: po wcześniejszym zainstalowaniu PWA aplikacja nie wymaga internetu. GPS w przeglądarce wymaga bezpiecznego kontekstu HTTPS albo instalacji jako PWA.</p>
+</section>
+</main>
+<script src="trasa.js"></script>
+<script>
+let route = [];
+let totalDist = 0;
+let markerIdx = 0;
+let watchId = null;
+let wakeLock = null;
+const canvas = document.getElementById('profile');
+const ctx = canvas.getContext('2d');
+const statusEl = document.getElementById('status');
+const sim = document.getElementById('sim');
+function rad(x){ return x*Math.PI/180; }
+function hav(a,b){
+  const R=6371000, dLat=rad(b.lat-a.lat), dLon=rad(b.lon-a.lon);
+  const lat1=rad(a.lat), lat2=rad(b.lat);
+  const h=Math.sin(dLat/2)**2+Math.cos(lat1)*Math.cos(lat2)*Math.sin(dLon/2)**2;
+  return 2*R*Math.asin(Math.sqrt(h));
+}
+function prepare(points){
+  route = points.filter(p => Number.isFinite(p.lat) && Number.isFinite(p.lon));
+  let d=0;
+  for(let i=0;i<route.length;i++){
+    if(i>0) d += hav(route[i-1], route[i]);
+    route[i].dist = d;
+    if(!Number.isFinite(route[i].ele)) route[i].ele = i>0 ? route[i-1].ele : 0;
+  }
+  totalDist=d;
+  markerIdx=0;
+  sim.value=0;
+  updateInfo(); draw();
+}
+function parseGpx(text){
+  const xml = new DOMParser().parseFromString(text, 'application/xml');
+  const nodes = [...xml.getElementsByTagName('trkpt'), ...xml.getElementsByTagName('rtept')];
+  return nodes.map(n=>({lat:parseFloat(n.getAttribute('lat')), lon:parseFloat(n.getAttribute('lon')), ele:parseFloat((n.getElementsByTagName('ele')[0]||{}).textContent)}));
+}
+function nearest(lat, lon){
+  const p={lat,lon}; let best=0, bestD=Infinity;
+  const start=Math.max(0, markerIdx-80), end=Math.min(route.length, markerIdx+240);
+  for(let i=start;i<end;i++){ const d=hav(p,route[i]); if(d<bestD){bestD=d; best=i;} }
+  if(bestD>120){
+    for(let i=0;i<route.length;i++){ const d=hav(p,route[i]); if(d<bestD){bestD=d; best=i;} }
+  }
+  return {idx:best, d:bestD};
+}
+function resize(){
+  const r = canvas.getBoundingClientRect();
+  canvas.width = Math.round(r.width * devicePixelRatio);
+  canvas.height = Math.round(r.height * devicePixelRatio);
+  draw();
+}
+function draw(){
+  if(!route.length) return;
+  const w=canvas.width, h=canvas.height;
+  ctx.clearRect(0,0,w,h);
+  const padL=52*devicePixelRatio, padR=16*devicePixelRatio, padT=18*devicePixelRatio, padB=36*devicePixelRatio;
+  const eles=route.map(p=>p.ele).filter(Number.isFinite);
+  const minE=Math.min(...eles)-10, maxE=Math.max(...eles)+10;
+  function x(p){return padL + (p.dist/totalDist)*(w-padL-padR);}
+  function y(p){return padT + (1-(p.ele-minE)/(maxE-minE))*(h-padT-padB);}
+  ctx.strokeStyle='#334155'; ctx.lineWidth=1*devicePixelRatio; ctx.font=(11*devicePixelRatio)+'px system-ui'; ctx.fillStyle='#94a3b8';
+  for(let k=0;k<=4;k++){
+    const yy=padT+k*(h-padT-padB)/4; ctx.beginPath(); ctx.moveTo(padL,yy); ctx.lineTo(w-padR,yy); ctx.stroke();
+    const val=Math.round(maxE-k*(maxE-minE)/4); ctx.fillText(val+' m', 6*devicePixelRatio, yy+4*devicePixelRatio);
+  }
+  ctx.beginPath();
+  for(let i=0;i<route.length;i++){ const xx=x(route[i]), yy=y(route[i]); if(i===0) ctx.moveTo(xx,yy); else ctx.lineTo(xx,yy); }
+  ctx.strokeStyle='#38bdf8'; ctx.lineWidth=2.2*devicePixelRatio; ctx.stroke();
+  const m=route[markerIdx]; const mx=x(m), my=y(m);
+  ctx.strokeStyle='#f59e0b'; ctx.lineWidth=2*devicePixelRatio; ctx.beginPath(); ctx.moveTo(mx,padT); ctx.lineTo(mx,h-padB); ctx.stroke();
+  ctx.fillStyle='#f59e0b'; ctx.beginPath(); ctx.arc(mx,my,6*devicePixelRatio,0,Math.PI*2); ctx.fill();
+  ctx.fillStyle='#94a3b8';
+  ctx.fillText('0 km', padL, h-12*devicePixelRatio);
+  ctx.fillText((totalDist/1000).toFixed(1)+' km', w-padR-58*devicePixelRatio, h-12*devicePixelRatio);
+}
+function updateInfo(gpsD=null, acc=null){
+  if(!route.length) return;
+  const p=route[markerIdx];
+  document.getElementById('km').textContent=(p.dist/1000).toFixed(2)+' km';
+  document.getElementById('ele').textContent=Math.round(p.ele)+' m';
+  document.getElementById('left').textContent=((totalDist-p.dist)/1000).toFixed(2)+' km';
+  document.getElementById('idx').textContent=(markerIdx+1)+' / '+route.length;
+  document.getElementById('off').textContent=gpsD==null?'-':Math.round(gpsD)+' m';
+  document.getElementById('acc').textContent=acc==null?'-':Math.round(acc)+' m';
+  if(gpsD!=null && gpsD>100) statusEl.innerHTML='<span class="bad">Poza trasą lub duży błąd GPS.</span>';
+  else if(gpsD!=null) statusEl.innerHTML='<span class="ok">GPS aktywny.</span>';
+}
+sim.addEventListener('input', ()=>{ markerIdx=Math.round((route.length-1)*(sim.value/1000)); updateInfo(); draw(); });
+document.getElementById('file').addEventListener('change', async e=>{
+  const f=e.target.files[0]; if(!f) return;
+  const pts=parseGpx(await f.text());
+  prepare(pts); statusEl.textContent='Wczytano GPX: '+f.name;
+});
+document.getElementById('gpsBtn').addEventListener('click', ()=>{
+  if(watchId!=null){ navigator.geolocation.clearWatch(watchId); watchId=null; statusEl.textContent='GPS zatrzymany.'; return; }
+  if(!navigator.geolocation){ statusEl.innerHTML='<span class="bad">Brak obsługi GPS w tej przeglądarce.</span>'; return; }
+  watchId = navigator.geolocation.watchPosition(pos=>{
+    const n=nearest(pos.coords.latitude, pos.coords.longitude);
+    markerIdx=n.idx; sim.value=Math.round(1000*markerIdx/(route.length-1));
+    updateInfo(n.d, pos.coords.accuracy); draw();
+  }, err=>{ statusEl.innerHTML='<span class="bad">Błąd GPS: '+err.message+'</span>'; },
+  {enableHighAccuracy:true, maximumAge:1000, timeout:15000});
+});
+document.getElementById('wakeBtn').addEventListener('click', async()=>{
+  try{
+    if('wakeLock' in navigator){ wakeLock = await navigator.wakeLock.request('screen'); statusEl.textContent='Blokada wygaszania ekranu aktywna.'; }
+    else statusEl.textContent='Ta przeglądarka nie obsługuje blokady wygaszania ekranu.';
+  }catch(e){ statusEl.textContent='Nie udało się włączyć blokady ekranu.'; }
+});
+document.getElementById('fitBtn').addEventListener('click', ()=>{ draw(); });
+window.addEventListener('resize', resize);
+if('serviceWorker' in navigator){ navigator.serviceWorker.register('service-worker.js').catch(()=>{}); }
+prepare(BUILTIN_ROUTE);
+resize();
+</script>
+</body>
+</html>
