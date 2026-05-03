@@ -18,6 +18,7 @@ main { padding:10px; display:grid; gap:10px; }
 button, label.file { background:#1f2937; color:var(--text); border:1px solid #374151; padding:9px 11px; border-radius:10px; font-size:14px; }
 button:active, label.file:active { transform:translateY(1px); }
 input[type=file] { display:none; }
+input.speed-input { width:100%; margin-top:6px; background:#111827; color:var(--text); border:1px solid #374151; border-radius:10px; padding:8px; font-size:18px; font-weight:700; }
 canvas { width:100%; height:46vh; min-height:280px; display:block; background:#020617; border-radius:12px; touch-action:none; }
 .grid { display:grid; grid-template-columns: repeat(2, 1fr); gap:8px; }
 .tile { background:#020617; border:1px solid #1f2937; border-radius:12px; padding:9px; }
@@ -31,7 +32,7 @@ canvas { width:100%; height:46vh; min-height:280px; display:block; background:#0
 <body>
 <header>
   <h1>Profil trasy GPS offline</h1>
-  <div class="small">Pozycja z GPS, wysokość i profil z pliku GPX.</div>
+  <div class="small">Pozycja z GPS, wysokość i profil z pliku GPX. Prędkość do obliczenia godziny celu można wpisać ręcznie, np. z Garmina. Pozycję na trasie można skorygować ręcznie suwakiem. Aplikacja zapisuje punkty kontrolne GPS i tworzy zgrubny kilometraż do rozróżniania odcinków tam–powrót.</div>
 </header>
 <main>
 <section class="panel">
@@ -48,18 +49,22 @@ canvas { width:100%; height:46vh; min-height:280px; display:block; background:#0
     <button id="zoomInYBtn">Powiększ Y</button>
     <button id="zoomOutYBtn">Pomniejsz Y</button>
     <button id="centerBtn">Do pozycji</button>
+    <button id="manualPosBtn">Pozycja ręcznie</button>
     <button id="fitBtn">Pokaż całość</button>
   </div>
   <p id="status" class="status">Wczytaj plik GPX albo użyj trasy wbudowanej do testu interfejsu.</p>
   <div class="grid">
-    <div class="tile">Kilometr trasy<b id="km">-</b></div>
+    <div class="tile">Prędkość [km/h]<input id="manualSpeed" class="speed-input" type="number" inputmode="decimal" min="0" step="0.1" placeholder="np. 14.5"></div>
+    <div class="tile">Pozycja na GPX<b id="km">-</b></div>
+    <div class="tile">Km aplikacji<b id="roughKm">-</b></div>
+    <div class="tile">Do końca GPX<b id="left">-</b></div>
     <div class="tile">Wysokość z GPX<b id="ele">-</b></div>
-    <div class="tile">Do końca<b id="left">-</b></div>
     <div class="tile">Odległość od śladu<b id="off">-</b></div>
-    <div class="tile">Najbliższy punkt<b id="idx">-</b></div>
     <div class="tile">GPS accuracy<b id="acc">-</b></div>
+    <div class="tile">Aktualny czas<b id="clock">-</b></div>
+    <div class="tile">Cel<b id="eta">-</b></div>
   </div>
-  <p class="small">Tryb offline: po wcześniejszym zainstalowaniu PWA aplikacja nie wymaga internetu. Dane trasy są pobierane wyłącznie z pliku GPX.</p>
+  <p class="small">Tryb offline: po wcześniejszym zainstalowaniu PWA aplikacja nie wymaga internetu. Dane trasy są pobierane wyłącznie z pliku GPX. Pozycja na GPX i Do końca GPX są liczone przez ciągłe śledzenie najbliższego punktu śladu w pobliżu ostatniej pozycji, co ogranicza przeskoki na odcinkach tam–powrót. Gdy trasa biegnie tą samą drogą w obie strony, aplikacja wykorzystuje ostatnią pozycję na GPX oraz zgrubny kilometraż z zapisanych punktów kontrolnych GPS. Jeżeli dopasowanie będzie błędne, ustaw suwak mniej więcej na aktualnym kilometrze GPX i kliknij Pozycja ręcznie; aplikacja wybierze najbliższy punkt GPX względem aktualnego GPS w pobliżu wskazanego kilometra i zsynchronizuje kilometraż aplikacji. Cel jest szacowaną godziną dotarcia, obliczaną z dystansu Do końca GPX i ręcznie wpisanej prędkości, np. z Garmina. Nachylenie jest liczone z odcinka profilu GPX ±20 m wokół aktualnej pozycji i wyświetlane przy znaczniku pozycji.</p>
 </section>
 </main>
 <script src="trasa.js"></script>
@@ -67,8 +72,16 @@ canvas { width:100%; height:46vh; min-height:280px; display:block; background:#0
 let route = [];
 let totalDist = 0;
 let markerIdx = 0;
+let lastGpsDistance = null;
+let lastGpsAccuracy = null;
+let lastGpsLat = null;
+let lastGpsLon = null;
+let roughTrack = {signature:null, dist:0, points:[]};
+const ROUGH_KEY = 'profilGpsRoughTrackV9';
+
 let watchId = null;
 let wakeLock = null;
+let trackingInitialized = false;
 let viewStart = 0;
 let viewEnd = 0;
 let xZoom = 1;
@@ -87,6 +100,81 @@ function hav(a,b){
   const h=Math.sin(dLat/2)**2+Math.cos(lat1)*Math.cos(lat2)*Math.sin(dLon/2)**2;
   return 2*R*Math.asin(Math.sqrt(h));
 }
+
+function currentRouteSignature(){
+  if(!route.length) return null;
+  const first = route[0], last = route[route.length-1];
+  return [
+    route.length,
+    Math.round(totalDist),
+    first.lat.toFixed(5), first.lon.toFixed(5),
+    last.lat.toFixed(5), last.lon.toFixed(5)
+  ].join('|');
+}
+function loadRoughTrack(){
+  const sig = currentRouteSignature();
+  try{
+    const raw = localStorage.getItem(ROUGH_KEY);
+    const obj = raw ? JSON.parse(raw) : null;
+    if(obj && obj.signature === sig && Number.isFinite(obj.dist)){
+      roughTrack = {signature:sig, dist:obj.dist, points:Array.isArray(obj.points)?obj.points:[]};
+    } else {
+      roughTrack = {signature:sig, dist:0, points:[]};
+    }
+  }catch(e){
+    roughTrack = {signature:sig, dist:0, points:[]};
+  }
+}
+function saveRoughTrack(){
+  try{ localStorage.setItem(ROUGH_KEY, JSON.stringify(roughTrack)); }catch(e){}
+}
+function resetRoughTrack(dist=0){
+  roughTrack = {signature:currentRouteSignature(), dist:Math.max(0, dist||0), points:[]};
+  if(Number.isFinite(lastGpsLat) && Number.isFinite(lastGpsLon)){
+    roughTrack.points.push({lat:lastGpsLat, lon:lastGpsLon, t:Date.now(), dist:roughTrack.dist});
+  }
+  saveRoughTrack();
+  updateInfo();
+}
+function updateRoughTrackFromGps(lat, lon, acc){
+  if(!route.length) return;
+  if(roughTrack.signature !== currentRouteSignature()) loadRoughTrack();
+  if(acc != null && Number.isFinite(acc) && acc > 120) return;
+
+  const now = Date.now();
+  const pt = {lat, lon, t:now, dist:roughTrack.dist || 0};
+  const last = roughTrack.points.length ? roughTrack.points[roughTrack.points.length-1] : null;
+
+  if(!last){
+    roughTrack.points.push(pt);
+    saveRoughTrack();
+    return;
+  }
+
+  const dd = hav({lat:last.lat, lon:last.lon}, {lat, lon});
+  const dt = Math.max(0, (now - (last.t || now))/1000);
+
+  // Filtr szumu GPS na postoju i dużych skoków po długiej przerwie.
+  // To jest tylko zgrubny kilometraż pomocniczy, nie licznik treningowy.
+  if(dd < 25 && dt < 180) return;
+  if(dd > 8000) return;
+
+  roughTrack.dist = Math.min(totalDist, Math.max(0, (roughTrack.dist || 0) + dd));
+  pt.dist = roughTrack.dist;
+  roughTrack.points.push(pt);
+  if(roughTrack.points.length > 200) roughTrack.points = roughTrack.points.slice(-200);
+  saveRoughTrack();
+}
+function nearestIndexByDistanceMeters(targetDist){
+  if(!route.length) return 0;
+  targetDist = clamp(targetDist, 0, totalDist);
+  let best=0, bestDelta=Infinity;
+  for(let i=0;i<route.length;i++){
+    const d = Math.abs(route[i].dist - targetDist);
+    if(d < bestDelta){ bestDelta=d; best=i; }
+  }
+  return best;
+}
 function prepare(points){
   route = points.filter(p => Number.isFinite(p.lat) && Number.isFinite(p.lon));
   let d=0;
@@ -97,7 +185,15 @@ function prepare(points){
   }
   totalDist=d;
   markerIdx=0;
-  sim.value=0;
+  lastGpsDistance=null;
+  lastGpsAccuracy=null;
+  lastGpsLat=null;
+  lastGpsLon=null;
+
+  trackingInitialized=false;
+  loadRoughTrack();
+  if(roughTrack.dist > 0){ markerIdx = nearestIndexByDistanceMeters(roughTrack.dist); }
+  sim.value=Math.round(1000*markerIdx/(route.length-1));
   viewStart=0;
   viewEnd=totalDist;
   xZoom=1;
@@ -110,13 +206,85 @@ function parseGpx(text){
   const nodes = [...xml.getElementsByTagName('trkpt'), ...xml.getElementsByTagName('rtept')];
   return nodes.map(n=>({lat:parseFloat(n.getAttribute('lat')), lon:parseFloat(n.getAttribute('lon')), ele:parseFloat((n.getElementsByTagName('ele')[0]||{}).textContent)}));
 }
-function nearest(lat, lon){
-  const p={lat,lon}; let best=0, bestD=Infinity;
-  const start=Math.max(0, markerIdx-80), end=Math.min(route.length, markerIdx+240);
-  for(let i=start;i<end;i++){ const d=hav(p,route[i]); if(d<bestD){bestD=d; best=i;} }
-  if(bestD>120){
-    for(let i=0;i<route.length;i++){ const d=hav(p,route[i]); if(d<bestD){bestD=d; best=i;} }
+function nearestGlobal(lat, lon){
+  const p={lat, lon};
+  let best=0, bestD=Infinity;
+  for(let i=0;i<route.length;i++){
+    const d=hav(p,route[i]);
+    if(d<bestD){ bestD=d; best=i; }
   }
+  return {idx:best, d:bestD};
+}
+
+function nearestGlobalWithRoughMileage(lat, lon){
+  const p={lat, lon};
+  let distances=[];
+  let bestD=Infinity;
+  for(let i=0;i<route.length;i++){
+    const d=hav(p,route[i]);
+    distances.push(d);
+    if(d<bestD) bestD=d;
+  }
+
+  const rough = roughTrack && Number.isFinite(roughTrack.dist) ? roughTrack.dist : 0;
+  let best=0, bestScore=Infinity;
+  for(let i=0;i<route.length;i++){
+    const d = distances[i];
+    // Kandydaci bliscy geograficznie. Przy odcinkach tam–powrót będzie ich więcej.
+    if(d > bestD + 80 && d > 160) continue;
+    const roughPenalty = rough > 0 ? Math.abs(route[i].dist - rough) / 8 : 0;
+    const score = d + roughPenalty;
+    if(score < bestScore){ bestScore=score; best=i; }
+  }
+  return {idx:best, d:distances[best]};
+}
+
+
+function nearestInDistWindow(lat, lon, centerDist, halfWindow){
+  const p={lat, lon};
+  const startDist = Math.max(0, centerDist - halfWindow);
+  const endDist = Math.min(totalDist, centerDist + halfWindow);
+  let best=markerIdx, bestD=Infinity;
+  for(let i=0;i<route.length;i++){
+    const rd = route[i].dist;
+    if(rd < startDist || rd > endDist) continue;
+    const d=hav(p,route[i]);
+    if(d<bestD){ bestD=d; best=i; }
+  }
+  return {idx:best, d:bestD};
+}
+
+function nearestTracked(lat, lon){
+  const p={lat, lon};
+
+  if(!trackingInitialized || !route.length){
+    const g = nearestGlobalWithRoughMileage(lat, lon);
+    trackingInitialized = true;
+    return g;
+  }
+
+  const currentDist = route[markerIdx].dist;
+  const backWindow = 700;     // pozwala na wolne cofanie i korekty GPS
+  const forwardWindow = 2500; // pozwala na normalny postęp między kolejnymi odczytami
+  const startDist = Math.max(0, currentDist - backWindow);
+  const endDist = Math.min(totalDist, currentDist + forwardWindow);
+
+  let best=markerIdx, bestD=Infinity;
+  for(let i=0;i<route.length;i++){
+    const rd = route[i].dist;
+    if(rd < startDist || rd > endDist) continue;
+    const d=hav(p,route[i]);
+    if(d<bestD){ bestD=d; best=i; }
+  }
+
+  // Reaktywacja po dużym zejściu ze śladu lub po przerwie.
+  // Próg jest wysoki, żeby nie przeskakiwać między odcinkami tam/powrót
+  // biegnącymi tą samą drogą.
+  if(bestD > 1000){
+    const g = nearestGlobalWithRoughMileage(lat, lon);
+    if(g.d < bestD){ return g; }
+  }
+
   return {idx:best, d:bestD};
 }
 
@@ -128,15 +296,59 @@ function centerViewOnMarker(){
   viewStart = clamp(c - width/2, 0, Math.max(0, totalDist-width));
   viewEnd = viewStart + width;
 }
+
+function keepMarkerVisible(){
+  if(!route.length || xZoom<=1) return;
+
+  const width = viewEnd - viewStart;
+  if(width <= 0 || width >= totalDist) return;
+
+  const maxStart = Math.max(0, totalDist - width);
+  const markerDist = route[markerIdx].dist;
+  const margin = width * 0.08;
+
+  if(markerDist < viewStart + margin){
+    viewStart = clamp(markerDist - margin, 0, maxStart);
+    viewEnd = viewStart + width;
+  } else if(markerDist > viewEnd - margin){
+    viewStart = clamp(markerDist + margin - width, 0, maxStart);
+    viewEnd = viewStart + width;
+  }
+}
+
+function autoScrollAfterMarkerHalf(){
+  if(!route.length || xZoom<=1) return;
+
+  const width = viewEnd - viewStart;
+  if(width <= 0 || width >= totalDist) return;
+
+  const maxStart = Math.max(0, totalDist - width);
+  const markerDist = route[markerIdx].dist;
+  const middle = viewStart + width/2;
+
+  // Przewijanie działa w obie strony: po minięciu połowy widoku
+  // znacznik jest utrzymywany w połowie, z wyjątkiem początku i końca trasy.
+  if(markerDist > middle || markerDist < middle){
+    viewStart = clamp(markerDist - width/2, 0, maxStart);
+    viewEnd = viewStart + width;
+  }
+}
+
 function applyXZoom(newZoom, keepDist=null){
   if(!route.length) return;
-  const oldStart=viewStart, oldEnd=viewEnd;
   xZoom = clamp(newZoom, 1, 24);
   if(xZoom<=1){ viewStart=0; viewEnd=totalDist; draw(); return; }
+
   const width = totalDist / xZoom;
-  const center = keepDist==null ? (oldStart+oldEnd)/2 : keepDist;
-  viewStart = clamp(center - width/2, 0, Math.max(0, totalDist-width));
+  const maxStart = Math.max(0, totalDist - width);
+  const markerDist = route[markerIdx].dist;
+
+  // Przy powiększaniu/pomniejszaniu priorytet ma widoczność znacznika.
+  // Jeżeli nie podano punktu zakotwiczenia, widok jest ustawiany wokół znacznika.
+  const center = keepDist==null ? markerDist : keepDist;
+  viewStart = clamp(center - width/2, 0, maxStart);
   viewEnd = viewStart + width;
+  keepMarkerVisible();
   draw();
 }
 function distFromCanvasX(clientX){
@@ -151,6 +363,114 @@ function visibleRoute(){
   if(!route.length) return [];
   return route.filter(p => p.dist>=viewStart && p.dist<=viewEnd);
 }
+function markerColor(){
+  if(lastGpsDistance==null) return '#f59e0b';
+  if(lastGpsDistance<=100) return '#22c55e';
+  if(lastGpsDistance<=500) return '#f59e0b';
+  return '#ef4444';
+}
+function markerStatusClass(){
+  if(lastGpsDistance==null) return 'accent';
+  if(lastGpsDistance<=100) return 'ok';
+  if(lastGpsDistance<=500) return 'accent';
+  return 'bad';
+}
+
+function elevationAtDist(targetDist){
+  if(!route.length) return null;
+  targetDist = clamp(targetDist, 0, totalDist);
+  let lo = 0, hi = route.length - 1;
+  while(lo < hi){
+    const mid = Math.floor((lo + hi) / 2);
+    if(route[mid].dist < targetDist) lo = mid + 1; else hi = mid;
+  }
+  const i = lo;
+  if(i <= 0) return route[0].ele;
+  const a = route[i-1], b = route[i];
+  const span = Math.max(0.001, b.dist - a.dist);
+  const f = (targetDist - a.dist) / span;
+  return a.ele + f * (b.ele - a.ele);
+}
+function slopePercentAtIndex(idx){
+  if(!route.length) return null;
+  const d = route[idx].dist;
+  const d1 = clamp(d - 20, 0, totalDist);
+  const d2 = clamp(d + 20, 0, totalDist);
+  const e1 = elevationAtDist(d1);
+  const e2 = elevationAtDist(d2);
+  const span = d2 - d1;
+  if(e1 === null || e2 === null || span <= 0.1) return null;
+  return 100 * (e2 - e1) / span;
+}
+function formatSlope(value){
+  if(value === null || !Number.isFinite(value)) return '-';
+  const sign = value > 0 ? '+' : '';
+  return sign + value.toFixed(1) + ' %';
+}
+
+function formatClock(date=new Date()){
+  return date.toLocaleTimeString('pl-PL', {hour:'2-digit', minute:'2-digit'});
+}
+function formatArrivalTime(seconds){
+  if(seconds === null || !Number.isFinite(seconds) || seconds < 0) return '-';
+  const target = new Date(Date.now() + seconds * 1000);
+  return formatClock(target);
+}
+function manualSpeedMps(){
+  const el = document.getElementById('manualSpeed');
+  if(!el) return null;
+  const raw = String(el.value || '').replace(',', '.');
+  const kmh = parseFloat(raw);
+  if(!Number.isFinite(kmh) || kmh <= 0) return null;
+  return kmh / 3.6;
+}
+function etaToEndSeconds(){
+  if(!route.length) return null;
+  const p = route[markerIdx];
+  const left = Math.max(0, totalDist - p.dist);
+  const speed = manualSpeedMps();
+  if(speed === null) return null;
+  return left / speed;
+}
+
+
+function setManualPositionFromSlider(){
+  if(!route.length) return;
+
+  // Suwak oznacza przybliżony już przejechany kilometr GPX.
+  // Po kliknięciu program nie przyjmuje suwaka jako finalnej pozycji,
+  // tylko szuka najbliższego punktu GPX względem aktualnego GPS
+  // w oknie wokół wskazanego kilometra. Dzięki temu odcinki tam–powrót
+  // są rozróżniane przez postęp po śladzie, a nie przez samą lokalizację.
+  const approxIdx = Math.round((route.length-1)*(sim.value/1000));
+  const approxDist = route[approxIdx].dist;
+
+  let n = null;
+  if(Number.isFinite(lastGpsLat) && Number.isFinite(lastGpsLon)){
+    n = nearestInDistWindow(lastGpsLat, lastGpsLon, approxDist, 2000);
+  } else {
+    n = {idx: approxIdx, d: null};
+  }
+
+  markerIdx = n.idx;
+  sim.value = Math.round(1000*markerIdx/(route.length-1));
+  trackingInitialized = true;
+  resetRoughTrack(route[markerIdx].dist);
+
+  if(n.d !== null) updateInfo(n.d, lastGpsAccuracy);
+  else updateInfo();
+
+  keepMarkerVisible();
+  draw();
+
+  const km = (route[markerIdx].dist/1000).toFixed(2);
+  if(n.d !== null){
+    statusEl.innerHTML='<span class="accent">Pozycja ręczna ustawiona: najbliższy punkt GPX w pobliżu wskazanego kilometra, km '+km+', odległość od GPS '+Math.round(n.d)+' m.</span>';
+  } else {
+    statusEl.innerHTML='<span class="accent">Pozycja ręczna ustawiona z suwaka: km '+km+'. Brak aktualnego odczytu GPS do dopasowania punktu.</span>';
+  }
+}
+
 function resize(){
   const r = canvas.getBoundingClientRect();
   canvas.width = Math.round(r.width * devicePixelRatio);
@@ -163,10 +483,13 @@ function draw(){
   const w=canvas.width, h=canvas.height;
   ctx.clearRect(0,0,w,h);
   const padL=52*devicePixelRatio, padR=16*devicePixelRatio, padT=18*devicePixelRatio, padB=54*devicePixelRatio;
-  let vis=visibleRoute();
-  if(vis.length<2) vis=route;
-  const eles=vis.map(p=>p.ele).filter(Number.isFinite);
-  let minRaw=Math.min(...eles), maxRaw=Math.max(...eles);
+  const vis=visibleRoute();
+
+  // Stabilna skala Y: zakres wysokości jest liczony z całej trasy,
+  // a nie z aktualnie widocznego fragmentu. Dzięki temu podczas
+  // przewijania X profil nie pływa pionowo na stromych odcinkach.
+  const allEles=route.map(p=>p.ele).filter(Number.isFinite);
+  let minRaw=Math.min(...allEles), maxRaw=Math.max(...allEles);
   if(!Number.isFinite(minRaw) || !Number.isFinite(maxRaw) || maxRaw<=minRaw){ minRaw=0; maxRaw=1; }
   const midE=(minRaw+maxRaw)/2;
   const rawRange=Math.max(20, maxRaw-minRaw+20);
@@ -191,8 +514,31 @@ function draw(){
   const m=route[markerIdx];
   if(m.dist>=viewStart && m.dist<=viewEnd){
     const mx=x(m), my=y(m);
-    ctx.strokeStyle='#f59e0b'; ctx.lineWidth=2*devicePixelRatio; ctx.beginPath(); ctx.moveTo(mx,padT); ctx.lineTo(mx,h-padB); ctx.stroke();
-    ctx.fillStyle='#f59e0b'; ctx.beginPath(); ctx.arc(mx,my,6*devicePixelRatio,0,Math.PI*2); ctx.fill();
+    const mc = markerColor();
+    ctx.strokeStyle=mc; ctx.lineWidth=2.2*devicePixelRatio; ctx.beginPath(); ctx.moveTo(mx,padT); ctx.lineTo(mx,h-padB); ctx.stroke();
+    ctx.fillStyle=mc; ctx.beginPath(); ctx.arc(mx,my,8*devicePixelRatio,0,Math.PI*2); ctx.fill();
+    ctx.strokeStyle='#020617'; ctx.lineWidth=2*devicePixelRatio; ctx.stroke();
+
+    const slopeText = formatSlope(slopePercentAtIndex(markerIdx));
+    ctx.font='bold '+(18*devicePixelRatio)+'px system-ui';
+    ctx.textAlign='center';
+    ctx.textBaseline='middle';
+    const labelW = ctx.measureText(slopeText).width + 24*devicePixelRatio;
+    const labelH = 32*devicePixelRatio;
+    let lx = clamp(mx - labelW/2, padL, w - padR - labelW);
+    let ly = my - 46*devicePixelRatio;
+    if(ly < padT + 4*devicePixelRatio) ly = my + 28*devicePixelRatio;
+    ctx.fillStyle='rgba(2, 6, 23, 0.88)';
+    ctx.strokeStyle=mc;
+    ctx.lineWidth=1.4*devicePixelRatio;
+    ctx.beginPath();
+    ctx.roundRect(lx, ly, labelW, labelH, 9*devicePixelRatio);
+    ctx.fill();
+    ctx.stroke();
+    ctx.fillStyle='#e5e7eb';
+    ctx.fillText(slopeText, lx + labelW/2, ly + labelH/2);
+    ctx.textAlign='start';
+    ctx.textBaseline='alphabetic';
   }
   drawDistanceScale(padL, padR, padT, padB, w, h);
 }
@@ -229,17 +575,39 @@ function drawDistanceScale(padL, padR, padT, padB, w, h){
 }
 function updateInfo(gpsD=null, acc=null){
   if(!route.length) return;
+  if(gpsD!==null) lastGpsDistance=gpsD;
+  if(acc!==null) lastGpsAccuracy=acc;
   const p=route[markerIdx];
   document.getElementById('km').textContent=(p.dist/1000).toFixed(2)+' km';
+  const rk = document.getElementById('roughKm');
+  if(rk) rk.textContent = roughTrack && Number.isFinite(roughTrack.dist) ? (roughTrack.dist/1000).toFixed(2)+' km' : '-';
   document.getElementById('ele').textContent=Math.round(p.ele)+' m';
   document.getElementById('left').textContent=((totalDist-p.dist)/1000).toFixed(2)+' km';
-  document.getElementById('idx').textContent=(markerIdx+1)+' / '+route.length;
-  document.getElementById('off').textContent=gpsD==null?'-':Math.round(gpsD)+' m';
-  document.getElementById('acc').textContent=acc==null?'-':Math.round(acc)+' m';
-  if(gpsD!=null && gpsD>100) statusEl.innerHTML='<span class="bad">Poza trasą lub duży błąd GPS.</span>';
-  else if(gpsD!=null) statusEl.innerHTML='<span class="ok">GPS aktywny.</span>';
+  document.getElementById('clock').textContent=formatClock();
+  document.getElementById('eta').textContent=formatArrivalTime(etaToEndSeconds());
+  document.getElementById('off').textContent=lastGpsDistance==null?'-':Math.round(lastGpsDistance)+' m';
+  document.getElementById('acc').textContent=lastGpsAccuracy==null?'-':Math.round(lastGpsAccuracy)+' m';
+  if(lastGpsDistance!=null){
+    if(lastGpsDistance<=100) statusEl.innerHTML='<span class="ok">GPS aktywny: pozycja przy trasie.</span>';
+    else if(lastGpsDistance<=500) statusEl.innerHTML='<span class="accent">GPS aktywny: jesteś 100–500 m od śladu.</span>';
+    else statusEl.innerHTML='<span class="bad">GPS aktywny: jesteś ponad 500 m od śladu.</span>';
+  }
 }
-sim.addEventListener('input', ()=>{ markerIdx=Math.round((route.length-1)*(sim.value/1000)); updateInfo(); draw(); });
+setInterval(()=>{
+  if(route.length) updateInfo();
+}, 10000);
+
+const manualSpeedEl = document.getElementById('manualSpeed');
+if(manualSpeedEl){
+  const savedSpeed = localStorage.getItem('profilGpsManualSpeedKmh');
+  if(savedSpeed) manualSpeedEl.value = savedSpeed;
+  manualSpeedEl.addEventListener('input', ()=>{
+    localStorage.setItem('profilGpsManualSpeedKmh', manualSpeedEl.value);
+    updateInfo();
+  });
+}
+
+sim.addEventListener('input', ()=>{ markerIdx=Math.round((route.length-1)*(sim.value/1000)); updateInfo(); autoScrollAfterMarkerHalf(); draw(); });
 document.getElementById('file').addEventListener('change', async e=>{
   const f=e.target.files[0]; if(!f) return;
   const pts=parseGpx(await f.text());
@@ -247,11 +615,18 @@ document.getElementById('file').addEventListener('change', async e=>{
 });
 document.getElementById('gpsBtn').addEventListener('click', ()=>{
   if(watchId!=null){ navigator.geolocation.clearWatch(watchId); watchId=null; statusEl.textContent='GPS zatrzymany.'; return; }
+  trackingInitialized=false;
+  updateInfo();
   if(!navigator.geolocation){ statusEl.innerHTML='<span class="bad">Brak obsługi GPS w tej przeglądarce.</span>'; return; }
   watchId = navigator.geolocation.watchPosition(pos=>{
-    const n=nearest(pos.coords.latitude, pos.coords.longitude);
+    lastGpsLat = pos.coords.latitude;
+    lastGpsLon = pos.coords.longitude;
+    updateRoughTrackFromGps(pos.coords.latitude, pos.coords.longitude, pos.coords.accuracy);
+    const n=nearestTracked(pos.coords.latitude, pos.coords.longitude);
     markerIdx=n.idx; sim.value=Math.round(1000*markerIdx/(route.length-1));
-    updateInfo(n.d, pos.coords.accuracy); draw();
+    updateInfo(n.d, pos.coords.accuracy);
+    autoScrollAfterMarkerHalf();
+    draw();
   }, err=>{ statusEl.innerHTML='<span class="bad">Błąd GPS: '+err.message+'</span>'; },
   {enableHighAccuracy:true, maximumAge:1000, timeout:15000});
 });
@@ -262,11 +637,12 @@ document.getElementById('wakeBtn').addEventListener('click', async()=>{
   }catch(e){ statusEl.textContent='Nie udało się włączyć blokady ekranu.'; }
 });
 
-document.getElementById('zoomInXBtn').addEventListener('click', ()=>{ applyXZoom(xZoom*1.6, route[markerIdx].dist); });
-document.getElementById('zoomOutXBtn').addEventListener('click', ()=>{ applyXZoom(xZoom/1.6, route[markerIdx].dist); });
-document.getElementById('zoomInYBtn').addEventListener('click', ()=>{ yStretch=clamp(yStretch*1.35,1,8); draw(); });
-document.getElementById('zoomOutYBtn').addEventListener('click', ()=>{ yStretch=clamp(yStretch/1.35,1,8); draw(); });
+document.getElementById('zoomInXBtn').addEventListener('click', ()=>{ applyXZoom(xZoom*1.6, null); });
+document.getElementById('zoomOutXBtn').addEventListener('click', ()=>{ applyXZoom(xZoom/1.6, null); });
+document.getElementById('zoomInYBtn').addEventListener('click', ()=>{ yStretch=clamp(yStretch*1.35,0.0005,12); draw(); });
+document.getElementById('zoomOutYBtn').addEventListener('click', ()=>{ yStretch=clamp(yStretch/1.35,0.0005,12); draw(); });
 document.getElementById('centerBtn').addEventListener('click', ()=>{ centerViewOnMarker(); draw(); });
+document.getElementById('manualPosBtn').addEventListener('click', setManualPositionFromSlider);
 document.getElementById('fitBtn').addEventListener('click', ()=>{ xZoom=1; yStretch=1; viewStart=0; viewEnd=totalDist; draw(); });
 canvas.addEventListener('wheel', e=>{
   e.preventDefault();
