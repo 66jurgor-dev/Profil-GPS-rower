@@ -1,9 +1,14 @@
-Profil trasy GPS offline - prototyp PWA
+Profil GPS rower — wersja z rozciąganiem wykresu
 
-Pliki:
-- index.html - aplikacja
-- trasa.js - trasa wbudowana z przeslanego GPX
-- manifest.json - instalacja PWA
-- service-worker.js - praca offline po instalacji
+Pliki do GitHub Pages:
+- index.html
+- manifest.json
+- service-worker.js
+- trasa.js
 
-Uwaga: GPS w przegladarce Androida wymaga HTTPS albo zainstalowanej PWA z bezpiecznego adresu. Samo otwarcie pliku index.html z pamieci telefonu moze pokazac profil, ale zwykle nie uruchomi GPS.
+Nowe funkcje:
+- Rozciągnij X / Ściśnij X: przybliżanie i oddalanie profilu poziomo.
+- Rozciągnij Y / Ściśnij Y: zwiększanie lub zmniejszanie skali wysokości.
+- Do pozycji: centruje widok na aktualnym markerze GPS/symulacji.
+- Pokaż całość: resetuje skalę X i Y.
+- Po rozciągnięciu X wykres można przesuwać palcem po profilu.

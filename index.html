@@ -43,6 +43,11 @@ canvas { width:100%; height:46vh; min-height:280px; display:block; background:#0
     <button id="gpsBtn">Start GPS</button>
     <button id="wakeBtn">Ekran aktywny</button>
     <label class="file">Wczytaj GPX<input id="file" type="file" accept=".gpx,application/gpx+xml,text/xml"></label>
+    <button id="zoomInXBtn">Rozciągnij X</button>
+    <button id="zoomOutXBtn">Ściśnij X</button>
+    <button id="zoomInYBtn">Rozciągnij Y</button>
+    <button id="zoomOutYBtn">Ściśnij Y</button>
+    <button id="centerBtn">Do pozycji</button>
     <button id="fitBtn">Pokaż całość</button>
   </div>
   <p id="status" class="status">Wczytano trasę testową.</p>
@@ -64,6 +69,13 @@ let totalDist = 0;
 let markerIdx = 0;
 let watchId = null;
 let wakeLock = null;
+let viewStart = 0;
+let viewEnd = 0;
+let xZoom = 1;
+let yStretch = 1;
+let autoCenter = true;
+let dragState = null;
+let pinchState = null;
 const canvas = document.getElementById('profile');
 const ctx = canvas.getContext('2d');
 const statusEl = document.getElementById('status');
@@ -86,6 +98,11 @@ function prepare(points){
   totalDist=d;
   markerIdx=0;
   sim.value=0;
+  viewStart=0;
+  viewEnd=totalDist;
+  xZoom=1;
+  yStretch=1;
+  autoCenter=true;
   updateInfo(); draw();
 }
 function parseGpx(text){
@@ -102,6 +119,38 @@ function nearest(lat, lon){
   }
   return {idx:best, d:bestD};
 }
+
+function clamp(v, lo, hi){ return Math.max(lo, Math.min(hi, v)); }
+function centerViewOnMarker(){
+  if(!route.length || xZoom<=1){ viewStart=0; viewEnd=totalDist; return; }
+  const width = totalDist / xZoom;
+  const c = route[markerIdx].dist;
+  viewStart = clamp(c - width/2, 0, Math.max(0, totalDist-width));
+  viewEnd = viewStart + width;
+}
+function applyXZoom(newZoom, keepDist=null){
+  if(!route.length) return;
+  const oldStart=viewStart, oldEnd=viewEnd;
+  xZoom = clamp(newZoom, 1, 24);
+  if(xZoom<=1){ viewStart=0; viewEnd=totalDist; autoCenter=true; draw(); return; }
+  const width = totalDist / xZoom;
+  const center = keepDist==null ? (oldStart+oldEnd)/2 : keepDist;
+  viewStart = clamp(center - width/2, 0, Math.max(0, totalDist-width));
+  viewEnd = viewStart + width;
+  draw();
+}
+function distFromCanvasX(clientX){
+  const rect=canvas.getBoundingClientRect();
+  const xCss=clientX-rect.left;
+  const wCss=rect.width;
+  const padL=52, padR=16;
+  const frac=clamp((xCss-padL)/(wCss-padL-padR),0,1);
+  return viewStart + frac*(viewEnd-viewStart);
+}
+function visibleRoute(){
+  if(!route.length) return [];
+  return route.filter(p => p.dist>=viewStart && p.dist<=viewEnd);
+}
 function resize(){
   const r = canvas.getBoundingClientRect();
   canvas.width = Math.round(r.width * devicePixelRatio);
@@ -110,12 +159,20 @@ function resize(){
 }
 function draw(){
   if(!route.length) return;
+  if(viewEnd<=viewStart){ viewStart=0; viewEnd=totalDist; }
   const w=canvas.width, h=canvas.height;
   ctx.clearRect(0,0,w,h);
   const padL=52*devicePixelRatio, padR=16*devicePixelRatio, padT=18*devicePixelRatio, padB=36*devicePixelRatio;
-  const eles=route.map(p=>p.ele).filter(Number.isFinite);
-  const minE=Math.min(...eles)-10, maxE=Math.max(...eles)+10;
-  function x(p){return padL + (p.dist/totalDist)*(w-padL-padR);}
+  let vis=visibleRoute();
+  if(vis.length<2) vis=route;
+  const eles=vis.map(p=>p.ele).filter(Number.isFinite);
+  let minRaw=Math.min(...eles), maxRaw=Math.max(...eles);
+  if(!Number.isFinite(minRaw) || !Number.isFinite(maxRaw) || maxRaw<=minRaw){ minRaw=0; maxRaw=1; }
+  const midE=(minRaw+maxRaw)/2;
+  const rawRange=Math.max(20, maxRaw-minRaw+20);
+  const shownRange=rawRange / yStretch;
+  const minE=midE-shownRange/2, maxE=midE+shownRange/2;
+  function x(p){return padL + ((p.dist-viewStart)/(viewEnd-viewStart))*(w-padL-padR);}
   function y(p){return padT + (1-(p.ele-minE)/(maxE-minE))*(h-padT-padB);}
   ctx.strokeStyle='#334155'; ctx.lineWidth=1*devicePixelRatio; ctx.font=(11*devicePixelRatio)+'px system-ui'; ctx.fillStyle='#94a3b8';
   for(let k=0;k<=4;k++){
@@ -123,14 +180,24 @@ function draw(){
     const val=Math.round(maxE-k*(maxE-minE)/4); ctx.fillText(val+' m', 6*devicePixelRatio, yy+4*devicePixelRatio);
   }
   ctx.beginPath();
-  for(let i=0;i<route.length;i++){ const xx=x(route[i]), yy=y(route[i]); if(i===0) ctx.moveTo(xx,yy); else ctx.lineTo(xx,yy); }
+  let started=false;
+  for(let i=0;i<route.length;i++){
+    const p=route[i];
+    if(p.dist<viewStart || p.dist>viewEnd) continue;
+    const xx=x(p), yy=y(p);
+    if(!started){ ctx.moveTo(xx,yy); started=true; } else ctx.lineTo(xx,yy);
+  }
   ctx.strokeStyle='#38bdf8'; ctx.lineWidth=2.2*devicePixelRatio; ctx.stroke();
-  const m=route[markerIdx]; const mx=x(m), my=y(m);
-  ctx.strokeStyle='#f59e0b'; ctx.lineWidth=2*devicePixelRatio; ctx.beginPath(); ctx.moveTo(mx,padT); ctx.lineTo(mx,h-padB); ctx.stroke();
-  ctx.fillStyle='#f59e0b'; ctx.beginPath(); ctx.arc(mx,my,6*devicePixelRatio,0,Math.PI*2); ctx.fill();
+  const m=route[markerIdx];
+  if(m.dist>=viewStart && m.dist<=viewEnd){
+    const mx=x(m), my=y(m);
+    ctx.strokeStyle='#f59e0b'; ctx.lineWidth=2*devicePixelRatio; ctx.beginPath(); ctx.moveTo(mx,padT); ctx.lineTo(mx,h-padB); ctx.stroke();
+    ctx.fillStyle='#f59e0b'; ctx.beginPath(); ctx.arc(mx,my,6*devicePixelRatio,0,Math.PI*2); ctx.fill();
+  }
   ctx.fillStyle='#94a3b8';
-  ctx.fillText('0 km', padL, h-12*devicePixelRatio);
-  ctx.fillText((totalDist/1000).toFixed(1)+' km', w-padR-58*devicePixelRatio, h-12*devicePixelRatio);
+  ctx.fillText((viewStart/1000).toFixed(1)+' km', padL, h-12*devicePixelRatio);
+  ctx.fillText((viewEnd/1000).toFixed(1)+' km', w-padR-58*devicePixelRatio, h-12*devicePixelRatio);
+  ctx.fillText('X×'+xZoom.toFixed(1)+'  Y×'+yStretch.toFixed(1), padL+95*devicePixelRatio, h-12*devicePixelRatio);
 }
 function updateInfo(gpsD=null, acc=null){
   if(!route.length) return;
@@ -144,7 +211,7 @@ function updateInfo(gpsD=null, acc=null){
   if(gpsD!=null && gpsD>100) statusEl.innerHTML='<span class="bad">Poza trasą lub duży błąd GPS.</span>';
   else if(gpsD!=null) statusEl.innerHTML='<span class="ok">GPS aktywny.</span>';
 }
-sim.addEventListener('input', ()=>{ markerIdx=Math.round((route.length-1)*(sim.value/1000)); updateInfo(); draw(); });
+sim.addEventListener('input', ()=>{ markerIdx=Math.round((route.length-1)*(sim.value/1000)); if(autoCenter) centerViewOnMarker(); updateInfo(); draw(); });
 document.getElementById('file').addEventListener('change', async e=>{
   const f=e.target.files[0]; if(!f) return;
   const pts=parseGpx(await f.text());
@@ -156,6 +223,7 @@ document.getElementById('gpsBtn').addEventListener('click', ()=>{
   watchId = navigator.geolocation.watchPosition(pos=>{
     const n=nearest(pos.coords.latitude, pos.coords.longitude);
     markerIdx=n.idx; sim.value=Math.round(1000*markerIdx/(route.length-1));
+    if(autoCenter) centerViewOnMarker();
     updateInfo(n.d, pos.coords.accuracy); draw();
   }, err=>{ statusEl.innerHTML='<span class="bad">Błąd GPS: '+err.message+'</span>'; },
   {enableHighAccuracy:true, maximumAge:1000, timeout:15000});
@@ -166,7 +234,36 @@ document.getElementById('wakeBtn').addEventListener('click', async()=>{
     else statusEl.textContent='Ta przeglądarka nie obsługuje blokady wygaszania ekranu.';
   }catch(e){ statusEl.textContent='Nie udało się włączyć blokady ekranu.'; }
 });
-document.getElementById('fitBtn').addEventListener('click', ()=>{ draw(); });
+
+document.getElementById('zoomInXBtn').addEventListener('click', ()=>{ autoCenter=true; applyXZoom(xZoom*1.6, route[markerIdx].dist); });
+document.getElementById('zoomOutXBtn').addEventListener('click', ()=>{ autoCenter=true; applyXZoom(xZoom/1.6, route[markerIdx].dist); });
+document.getElementById('zoomInYBtn').addEventListener('click', ()=>{ yStretch=clamp(yStretch*1.35,1,8); draw(); });
+document.getElementById('zoomOutYBtn').addEventListener('click', ()=>{ yStretch=clamp(yStretch/1.35,1,8); draw(); });
+document.getElementById('centerBtn').addEventListener('click', ()=>{ autoCenter=true; centerViewOnMarker(); draw(); });
+document.getElementById('fitBtn').addEventListener('click', ()=>{ xZoom=1; yStretch=1; viewStart=0; viewEnd=totalDist; autoCenter=true; draw(); });
+canvas.addEventListener('wheel', e=>{
+  e.preventDefault();
+  const d=distFromCanvasX(e.clientX);
+  autoCenter=false;
+  applyXZoom(xZoom*(e.deltaY<0?1.2:1/1.2), d);
+}, {passive:false});
+canvas.addEventListener('pointerdown', e=>{
+  canvas.setPointerCapture(e.pointerId);
+  dragState={id:e.pointerId, x:e.clientX, start:viewStart, end:viewEnd};
+});
+canvas.addEventListener('pointermove', e=>{
+  if(!dragState || dragState.id!==e.pointerId || xZoom<=1) return;
+  const rect=canvas.getBoundingClientRect();
+  const dx=e.clientX-dragState.x;
+  const dd=-(dx/rect.width)*(dragState.end-dragState.start);
+  const width=dragState.end-dragState.start;
+  viewStart=clamp(dragState.start+dd,0,Math.max(0,totalDist-width));
+  viewEnd=viewStart+width;
+  autoCenter=false;
+  draw();
+});
+canvas.addEventListener('pointerup', e=>{ if(dragState && dragState.id===e.pointerId) dragState=null; });
+canvas.addEventListener('pointercancel', ()=>{ dragState=null; });
 window.addEventListener('resize', resize);
 if('serviceWorker' in navigator){ navigator.serviceWorker.register('service-worker.js').catch(()=>{}); }
 prepare(BUILTIN_ROUTE);
