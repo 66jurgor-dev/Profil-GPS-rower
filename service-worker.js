@@ -1,4 +1,4 @@
-const CACHE_NAME = 'profil-gps-rough-mileage-v9';
+const CACHE_NAME = 'profil-gps-v15-pozycja-gps';
 const FILES = ['index.html','manifest.json','trasa.js'];
 self.addEventListener('install', e => {
   self.skipWaiting();
