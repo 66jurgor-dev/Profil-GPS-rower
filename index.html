@@ -35,6 +35,8 @@ canvas { width:100%; height:46vh; min-height:280px; display:block; background:#0
 .ok { color:var(--ok); } .bad { color:var(--bad); } .accent { color:var(--accent); }
 .range { width:100%; }
 @media (orientation:landscape) { main { grid-template-columns: 1.6fr 1fr; } canvas { height:72vh; } }
+
+.btn-blue { background:#2563eb; color:white; }
 </style>
 </head>
 <body>
@@ -61,17 +63,23 @@ canvas { width:100%; height:46vh; min-height:280px; display:block; background:#0
     <label class="file blue">Wczytaj GPX<input id="file" type="file" accept=".gpx,application/gpx+xml,text/xml"></label>
     <button id="gpsBtn" class="blue">Start GPS</button>
     <button id="fitBtn" class="green">Pokaż całość</button>
-    <button id="zoomInXBtn" class="green">Powiększ X</button>
-    <button id="zoomOutXBtn" class="green">Pomniejsz X</button>
-    <button id="zoomInYBtn" class="green">Powiększ Y</button>
-    <button id="zoomOutYBtn" class="green">Pomniejsz Y</button>
     <button id="centerBtn" class="orange">Do pozycji</button>
-    <button id="manualPosBtn" class="red">Ustaw km</button>
+    <button id="btnResetCzasu" class="btn btn-blue" onclick="resetCzasuAplikacji()">Reset</button>
+<button id="manualPosBtn" class="red">Ustaw km</button>
   </div>
 </section>
 </main>
 <script src="trasa.js"></script>
 <script>
+
+function safeEl(id){
+  return document.getElementById(id);
+}
+function safeAddClick(id, handler){
+  const el = document.getElementById(id);
+  if (el) el.addEventListener('click', handler);
+}
+
 let route = [];
 let totalDist = 0;
 let markerIdx = 0;
@@ -113,6 +121,9 @@ let yStretch = 1;
 let autoCenter = false;
 let dragState = null;
 let pinchState = null;
+let forecastOffsetRatio = Number(localStorage.getItem('profilGpsForecastOffsetRatio') || '0.25');
+let forecastDragState = null;
+let forecastLabelHit = null;
 const activePointers = new Map();
 const canvas = document.getElementById('profile');
 const ctx = canvas.getContext('2d');
@@ -747,7 +758,7 @@ function forecastStats(){
   if(!route.length) return null;
   const startDist = route[markerIdx] ? route[markerIdx].dist : 0;
   const width = Math.max(1, viewEnd-viewStart);
-  const endDist = clamp(startDist + width/4, 0, totalDist);
+  const endDist = clamp(startDist + width*forecastOffsetRatio, 0, totalDist);
   if(endDist <= startDist + 1) return {startDist, endDist, up:0, down:0};
 
   const samples = [routeSampleAtDist(startDist)];
@@ -765,9 +776,38 @@ function forecastStats(){
   return {startDist, endDist, up, down};
 }
 
+
+function clampForecastRatio(v){
+  if(!Number.isFinite(v)) return 0.25;
+  return clamp(v, 0.05, 0.90);
+}
+function setForecastFromClientX(clientX){
+  if(!route.length || viewEnd<=viewStart) return;
+  const rect=canvas.getBoundingClientRect();
+  const xCss=clientX-rect.left;
+  const wCss=rect.width;
+  const padL=76, padR=18;
+  const frac=clamp((xCss-padL)/(wCss-padL-padR),0,1);
+  const targetDist=viewStart+frac*(viewEnd-viewStart);
+  const startDist=route[markerIdx] ? route[markerIdx].dist : 0;
+  forecastOffsetRatio=clampForecastRatio((targetDist-startDist)/(viewEnd-viewStart));
+  localStorage.setItem('profilGpsForecastOffsetRatio', String(forecastOffsetRatio));
+  draw();
+}
+function isForecastHandle(clientX, clientY){
+  if(!forecastLabelHit) return false;
+  const rect=canvas.getBoundingClientRect();
+  const x=(clientX-rect.left)*devicePixelRatio;
+  const y=(clientY-rect.top)*devicePixelRatio;
+  const h=forecastLabelHit;
+  const labelHit=x>=h.lx && x<=h.lx+h.labelW && y>=h.ly && y<=h.ly+h.labelH;
+  const lineHit=Math.abs(x-h.fx)<=18*devicePixelRatio && y>=h.padT && y<=h.bottom;
+  return labelHit || lineHit;
+}
+
 function drawForecast(x, padL, padT, padB, w, h){
   const fs = forecastStats();
-  if(!fs || fs.endDist <= viewStart || fs.endDist > viewEnd + 1) return;
+  if(!fs || fs.endDist <= viewStart || fs.endDist > viewEnd + 1){ forecastLabelHit=null; return; }
   const fx = x({dist:fs.endDist, ele:0});
   const bottom = h - padB;
 
@@ -817,6 +857,7 @@ function drawForecast(x, padL, padT, padB, w, h){
   ctx.font = '800 '+font2+'px system-ui';
   ctx.fillStyle = '#e5e7eb';
   ctx.fillText(text2, lx + labelW/2, ly + 43*devicePixelRatio);
+  forecastLabelHit = {lx, ly, labelW, labelH, fx, padT, bottom};
   ctx.restore();
 }
 
@@ -986,10 +1027,6 @@ document.getElementById('gpsBtn').addEventListener('click', ()=>{
   }, err=>{ statusEl.innerHTML='<span class="bad">Błąd GPS: '+err.message+'</span>'; },
   {enableHighAccuracy:true, maximumAge:1000, timeout:15000});
 });
-document.getElementById('zoomInXBtn').addEventListener('click', ()=>{ applyXZoom(xZoom*1.6, null); });
-document.getElementById('zoomOutXBtn').addEventListener('click', ()=>{ applyXZoom(xZoom/1.6, null); });
-document.getElementById('zoomInYBtn').addEventListener('click', ()=>{ yStretch=clamp(yStretch*1.35,0.0005,12); draw(); });
-document.getElementById('zoomOutYBtn').addEventListener('click', ()=>{ yStretch=clamp(yStretch/1.35,0.0005,12); draw(); });
 document.getElementById('centerBtn').addEventListener('click', ()=>{ centerViewOnMarker(); draw(); });
 document.getElementById('manualPosBtn').addEventListener('click', setManualPositionFromSlider);
 document.getElementById('fitBtn').addEventListener('click', ()=>{ xZoom=1; yStretch=1; viewStart=0; viewEnd=totalDist; draw(); });
@@ -1010,14 +1047,28 @@ function startPinchIfPossible(){
 canvas.addEventListener('pointerdown', e=>{
   canvas.setPointerCapture(e.pointerId);
   activePointers.set(e.pointerId, {x:e.clientX, y:e.clientY});
+  if(activePointers.size === 1 && isForecastHandle(e.clientX, e.clientY)){
+    forecastDragState={id:e.pointerId};
+    setForecastFromClientX(e.clientX);
+    dragState=null;
+    e.preventDefault();
+    return;
+  }
   if(activePointers.size === 1){
     dragState={id:e.pointerId, x:e.clientX, start:viewStart, end:viewEnd};
   } else if(activePointers.size === 2){
+    forecastDragState=null;
     startPinchIfPossible();
   }
 });
 canvas.addEventListener('pointermove', e=>{
   if(activePointers.has(e.pointerId)) activePointers.set(e.pointerId, {x:e.clientX, y:e.clientY});
+
+  if(forecastDragState && forecastDragState.id===e.pointerId){
+    setForecastFromClientX(e.clientX);
+    e.preventDefault();
+    return;
+  }
 
   if(pinchState && activePointers.size >= 2){
     const pts = Array.from(activePointers.values()).slice(0,2);
