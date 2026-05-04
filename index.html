@@ -55,7 +55,7 @@ canvas { width:100%; height:46vh; min-height:280px; display:block; background:#0
     <div class="tile">Cel<b id="eta">-</b></div>
     <div class="tile">Pozycja GPS<b id="gpxCoord">-</b></div>
     <div class="tile">Prędkość aplikacji<b id="appSpeed">-</b></div>
-    <div class="tile">Prędkość [km/h]<input id="manualSpeed" class="speed-input" type="number" inputmode="decimal" min="0" step="0.1" placeholder="np. 14.5"></div>
+    <div class="tile">Prędkość [km/h]<input id="manualSpeed" class="speed-input" type="number" inputmode="decimal" min="0" step="0.1" placeholder="0 = auto"></div>
   </div>
   <div class="controls">
     <label class="file blue">Wczytaj GPX<input id="file" type="file" accept=".gpx,application/gpx+xml,text/xml"></label>
@@ -81,6 +81,8 @@ let lastGpsLat = null;
 let lastGpsLon = null;
 let roughTrack = {signature:null, dist:0, points:[]};
 const ROUGH_KEY = 'profilGpsRoughTrackV12';
+let speedHistory = {signature:null, points:[]};
+const SPEED_KEY = 'profilGpsSpeedHistoryV1';
 let manualLockUntil = 0;
 let manualLockCenterDist = null;
 let gpxNotePoints = [];
@@ -150,6 +152,51 @@ function loadRoughTrack(){
 }
 function saveRoughTrack(){
   try{ localStorage.setItem(ROUGH_KEY, JSON.stringify(roughTrack)); }catch(e){}
+}
+function loadSpeedHistory(){
+  const sig = currentRouteSignature();
+  try{
+    const raw = localStorage.getItem(SPEED_KEY);
+    const obj = raw ? JSON.parse(raw) : null;
+    if(obj && obj.signature === sig && Array.isArray(obj.points)){
+      speedHistory = {signature:sig, points:obj.points.filter(p => Number.isFinite(p.t) && Number.isFinite(p.dist))};
+    } else {
+      speedHistory = {signature:sig, points:[]};
+    }
+  }catch(e){
+    speedHistory = {signature:sig, points:[]};
+  }
+}
+function saveSpeedHistory(){
+  try{ localStorage.setItem(SPEED_KEY, JSON.stringify(speedHistory)); }catch(e){}
+}
+function recordSpeedPosition(dist, source='gps'){
+  if(!route.length || !Number.isFinite(dist)) return;
+  if(speedHistory.signature !== currentRouteSignature()) loadSpeedHistory();
+  const now = Date.now();
+  dist = clamp(dist, 0, totalDist);
+  const last = speedHistory.points.length ? speedHistory.points[speedHistory.points.length-1] : null;
+
+  // Ręczne ustawienie pozycji synchronizuje obliczenia.
+  // Jeżeli korekta cofa kilometraż, zaczynamy nową serię, aby nie zaniżać/zawyżać średniej.
+  if(source === 'manual'){
+    if(last && dist < last.dist - 500){
+      speedHistory.points = [];
+    }
+    speedHistory.points.push({t:now, dist, source});
+  } else {
+    if(last){
+      const dt = (now - last.t) / 1000;
+      const dd = dist - last.dist;
+      if(Math.abs(dd) < 20 && dt < 180) return;
+      if(dd < -300) return;
+      if(dd > 8000) return;
+    }
+    speedHistory.points.push({t:now, dist, source});
+  }
+
+  if(speedHistory.points.length > 200) speedHistory.points = speedHistory.points.slice(-200);
+  saveSpeedHistory();
 }
 
 function routeSpecificKey(baseKey){
@@ -253,6 +300,7 @@ function prepare(points){
   manualLockUntil = 0;
   manualLockCenterDist = null;
   loadRoughTrack();
+  loadSpeedHistory();
   clearGpxNotePoints();
   if(roughTrack.dist > 0){ markerIdx = nearestIndexByDistanceMeters(roughTrack.dist); }
 
@@ -529,9 +577,9 @@ function manualSpeedMps(){
   return kmh / 3.6;
 }
 function appSpeedKmh(){
-  if(!roughTrack || !Array.isArray(roughTrack.points) || roughTrack.points.length < 2) return null;
-  const first = roughTrack.points[0];
-  const last = roughTrack.points[roughTrack.points.length - 1];
+  if(!speedHistory || !Array.isArray(speedHistory.points) || speedHistory.points.length < 2) return null;
+  const first = speedHistory.points[0];
+  const last = speedHistory.points[speedHistory.points.length - 1];
   if(!first || !last) return null;
   const dtH = ((last.t || 0) - (first.t || 0)) / 3600000;
   const ddKm = ((last.dist || 0) - (first.dist || 0)) / 1000;
@@ -540,11 +588,20 @@ function appSpeedKmh(){
   if(!Number.isFinite(v) || v < 0 || v > 120) return null;
   return v;
 }
+function effectiveSpeedMps(){
+  // Wpisana prędkość > 0 ma pierwszeństwo.
+  // Wartość 0 lub puste pole oznacza tryb automatyczny na podstawie historii pozycji GPS/Ustaw km.
+  const manual = manualSpeedMps();
+  if(manual !== null) return manual;
+  const appV = appSpeedKmh();
+  if(appV === null) return null;
+  return appV / 3.6;
+}
 function etaToEndSeconds(){
   if(!route.length) return null;
   const p = route[markerIdx];
   const left = Math.max(0, totalDist - p.dist);
-  const speed = manualSpeedMps();
+  const speed = effectiveSpeedMps();
   if(speed === null) return null;
   return left / speed;
 }
@@ -574,6 +631,7 @@ function setManualPositionFromSlider(){
   manualLockCenterDist = route[markerIdx].dist;
   manualLockUntil = Date.now() + MANUAL_LOCK_MS;
   resetRoughTrack(route[markerIdx].dist);
+  recordSpeedPosition(route[markerIdx].dist, 'manual');
 
   if(n.d !== null) updateInfo(n.d, lastGpsAccuracy);
   else updateInfo();
@@ -921,6 +979,7 @@ document.getElementById('gpsBtn').addEventListener('click', ()=>{
     updateRoughTrackFromGps(pos.coords.latitude, pos.coords.longitude, pos.coords.accuracy);
     const n=nearestTracked(pos.coords.latitude, pos.coords.longitude);
     markerIdx=n.idx; sim.value=Math.round(1000*markerIdx/(route.length-1));
+    recordSpeedPosition(route[markerIdx].dist, 'gps');
     updateInfo(n.d, pos.coords.accuracy);
     autoScrollAfterMarkerHalf();
     draw();
