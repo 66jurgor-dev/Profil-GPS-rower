@@ -38,7 +38,7 @@ canvas { width:100%; height:46vh; min-height:280px; display:block; background:#0
 
 .btn-blue { background:#2563eb; color:white; }
 
-/* ===== v34: większy interfejs terenowy ===== */
+/* ===== v47: większy interfejs terenowy ===== */
 button,
 .btn,
 input[type="button"],
@@ -83,6 +83,37 @@ select {
   font-size: 1.35rem !important;
 }
 
+
+/* ===== v47: przyciski centralnie w dwóch rzędach ===== */
+.controls, .button-row, .buttons, .actions, .toolbar, .bottom-buttons {
+  display: flex !important;
+  flex-wrap: wrap !important;
+  justify-content: center !important;
+  align-items: center !important;
+  gap: 0.55rem !important;
+  max-width: 920px !important;
+  margin-left: auto !important;
+  margin-right: auto !important;
+}
+
+.controls button, .button-row button, .buttons button, .actions button, .toolbar button, .bottom-buttons button,
+label[for="gpxFileInput"], label[for="gpxInput"], .gpx-button, .file-button, .file-label, label:has(input[type="file"]) {
+  min-height: 3.1em !important;
+  padding-top: 0.95em !important;
+  padding-bottom: 0.95em !important;
+  font-size: 1.05rem !important;
+  line-height: 1.25 !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+}
+
+
+/* v47: Nachylenie 50 m jako normalny kafelek danych */
+#slopeForward50Value {
+  font-weight: 700 !important;
+}
+
 </style>
 </head>
 <body>
@@ -103,13 +134,17 @@ select {
     <div class="tile">Cel<b id="eta">-</b></div>
     <div class="tile">Pozycja GPS<b id="gpxCoord">-</b></div>
     <div class="tile">Prędkość aplikacji<b id="appSpeed">-</b></div>
+    <div class="tile">Nachylenie 50 m<b id="slopeForward50Value">-</b></div>
+
     <div class="tile">Prędkość [km/h]<input id="manualSpeed" class="speed-input" type="number" inputmode="decimal" min="0" step="0.1" placeholder="0 = auto"></div>
   </div>
-  <div class="controls">
-    <label class="file blue">Wczytaj GPX<input id="file" type="file" accept=".gpx,application/gpx+xml,text/xml"></label>
+<div class="controls">
+<label class="file blue">Wczytaj GPX<input id="file" type="file" accept=".gpx,application/gpx+xml,text/xml"></label>
     <button id="gpsBtn" class="blue">Start GPS</button>
     <button id="fitBtn" class="green">Pokaż całość</button>
-    <button id="centerBtn" class="orange">Do pozycji</button>
+      <button id="yUpBtn" onclick="yUp()" class="green">Y UP</button>
+      <button id="yDownBtn" onclick="yDown()" class="green">Y DOWN</button>
+<button id="centerBtn" class="orange">Do pozycji</button>
     <button id="btnResetCzasu" class="btn btn-blue" onclick="resetCzasuAplikacji()">Reset</button>
 <button id="manualPosBtn" class="red">Ustaw km</button>
   </div>
@@ -117,6 +152,7 @@ select {
 </main>
 <script src="trasa.js"></script>
 <script>
+
 
 function safeEl(id){
   return document.getElementById(id);
@@ -390,6 +426,9 @@ function bestPointLabel(node){
   return label;
 }
 function parseGpxData(text){
+  autoYActive = false;
+  autoYMin = null;
+  autoYMax = null;
   const xml = new DOMParser().parseFromString(text, 'application/xml');
   const trackNodes = [...xml.getElementsByTagName('trkpt'), ...xml.getElementsByTagName('rtept')];
   const routePoints = trackNodes.map(n=>({
@@ -600,6 +639,18 @@ function elevationAtDist(targetDist){
   const f = (targetDist - a.dist) / span;
   return a.ele + f * (b.ele - a.ele);
 }
+
+function nearestRouteIndexByDist(dist){
+  if(!route || !route.length) return null;
+  let lo = 0, hi = route.length - 1;
+  while(lo < hi){
+    const mid = Math.floor((lo + hi) / 2);
+    if(route[mid].dist < dist) lo = mid + 1; else hi = mid;
+  }
+  if(lo > 0 && Math.abs(route[lo-1].dist - dist) < Math.abs(route[lo].dist - dist)) return lo-1;
+  return lo;
+}
+
 function slopePercentAtIndex(idx){
   if(!route.length) return null;
   const d = route[idx].dist;
@@ -710,6 +761,8 @@ function resize(){
   canvas.height = Math.round(r.height * devicePixelRatio);
   draw();
 }
+
+
 function draw(){
   if(!route.length) return;
   if(viewEnd<=viewStart){ viewStart=0; viewEnd=totalDist; }
@@ -751,8 +804,9 @@ function draw(){
     const mx=x(m), my=y(m);
     const mc = markerColor();
     ctx.strokeStyle=mc; ctx.lineWidth=2.2*devicePixelRatio; ctx.beginPath(); ctx.moveTo(mx,padT); ctx.lineTo(mx,h-padB); ctx.stroke();
-    ctx.fillStyle=mc; ctx.beginPath(); ctx.arc(mx,my,8*devicePixelRatio,0,Math.PI*2); ctx.fill();
-    ctx.strokeStyle='#020617'; ctx.lineWidth=2*devicePixelRatio; ctx.stroke();
+    ctx.fillStyle=mc;
+drawSlopeLabelAtMarker(mx, my, padT, bottom);
+ctx.strokeStyle='#020617'; ctx.lineWidth=2*devicePixelRatio; ctx.stroke();
 
     const slopeText = formatSlope(slopePercentAtIndex(markerIdx));
     ctx.font='bold '+(18*devicePixelRatio)+'px system-ui';
@@ -760,6 +814,8 @@ function draw(){
     ctx.textBaseline='middle';
     const labelW = ctx.measureText(slopeText).width + 24*devicePixelRatio;
     const labelH = 32*devicePixelRatio;
+  /* v47 forecast label at bottom */
+  ly = bottom - labelH - 8*devicePixelRatio;
     let lx = clamp(mx - labelW/2, padL, w - padR - labelW);
     let ly = my - 46*devicePixelRatio;
     if(ly < padT + 4*devicePixelRatio) ly = my + 28*devicePixelRatio;
@@ -776,6 +832,11 @@ function draw(){
     ctx.textBaseline='alphabetic';
   }
   drawDistanceScale(padL, padR, padT, padB, w, h);
+
+  // // drawSlopeLabelOverlay();
+
+  // drawForwardSlopeFieldInDraw
+  updateForwardSlope50Field();
 }
 
 
@@ -851,6 +912,140 @@ function isForecastHandle(clientX, clientY){
   return labelHit || lineHit;
 }
 
+
+function drawSlopeLabelAtMarker(x, y, padT, bottom){
+  const slope = slopePercentAtIndex(markerIdx);
+  if(slope === null || !Number.isFinite(slope)) return;
+
+  const dpr = devicePixelRatio || 1;
+  const text = (slope >= 0 ? "+" : "") + slope.toFixed(1) + " %";
+
+  ctx.save();
+  ctx.font = `bold ${28*dpr}px system-ui, -apple-system, Segoe UI, sans-serif`;
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+
+  const metrics = ctx.measureText(text);
+  const boxW = metrics.width + 30*dpr;
+  const boxH = 46*dpr;
+  let bx = x - boxW/2;
+  let by = y + 16*dpr;
+
+  const leftLimit = 82*dpr;
+  const rightLimit = canvas.width - 20*dpr;
+  if(bx < leftLimit) bx = leftLimit;
+  if(bx + boxW > rightLimit) bx = rightLimit - boxW;
+  if(by + boxH > bottom - 6*dpr) by = y - boxH - 16*dpr;
+  if(by < padT + 6*dpr) by = padT + 6*dpr;
+
+  const r = 10*dpr;
+  ctx.beginPath();
+  ctx.moveTo(bx+r, by);
+  ctx.lineTo(bx+boxW-r, by);
+  ctx.quadraticCurveTo(bx+boxW, by, bx+boxW, by+r);
+  ctx.lineTo(bx+boxW, by+boxH-r);
+  ctx.quadraticCurveTo(bx+boxW, by+boxH, bx+boxW-r, by+boxH);
+  ctx.lineTo(bx+r, by+boxH);
+  ctx.quadraticCurveTo(bx, by+boxH, bx, by+boxH-r);
+  ctx.lineTo(bx, by+r);
+  ctx.quadraticCurveTo(bx, by, bx+r, by);
+  ctx.closePath();
+
+  ctx.fillStyle = "rgba(3, 7, 18, 0.90)";
+  ctx.fill();
+  ctx.lineWidth = 2*dpr;
+  ctx.strokeStyle = "#f59e0b";
+  ctx.stroke();
+
+  ctx.fillStyle = "#ffffff";
+  ctx.fillText(text, bx + boxW/2, by + boxH/2 + 1*dpr);
+  ctx.restore();
+}
+
+
+function routeIndexNearDistance(dist){
+  if(!route || !route.length) return null;
+  let best = 0;
+  let bestD = Math.abs(route[0].dist - dist);
+  for(let i=1; i<route.length; i++){
+    const d = Math.abs(route[i].dist - dist);
+    if(d < bestD){ bestD = d; best = i; }
+  }
+  return best;
+}
+
+function computeSlopeAtMarkerPercent(){
+  if(!route || !route.length || markerIdx == null || !route[markerIdx]) return null;
+  const d0 = route[markerIdx].dist;
+  const i1 = routeIndexNearDistance(Math.max(0, d0 - 20));
+  const i2 = routeIndexNearDistance(Math.min(totalDist, d0 + 20));
+  if(i1 == null || i2 == null || i1 === i2) return null;
+  const dd = route[i2].dist - route[i1].dist;
+  if(!Number.isFinite(dd) || Math.abs(dd) < 1) return null;
+  const dh = route[i2].ele - route[i1].ele;
+  if(!Number.isFinite(dh)) return null;
+  return 100 * dh / dd;
+}
+
+function drawSlopeLabelOverlay(){
+  if(!route || !route.length || markerIdx == null || !route[markerIdx]) return;
+  if(typeof xForDist !== "function" || typeof yForEle !== "function") return;
+
+  const slope = computeSlopeAtMarkerPercent();
+  if(slope === null || !Number.isFinite(slope)) return;
+
+  const x = xForDist(route[markerIdx].dist);
+  const y = yForEle(route[markerIdx].ele);
+  const dpr = devicePixelRatio || 1;
+  const txt = (slope >= 0 ? "+" : "") + slope.toFixed(1) + " %";
+
+  ctx.save();
+  ctx.font = `bold ${30*dpr}px system-ui, -apple-system, Segoe UI, sans-serif`;
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+
+  const metrics = ctx.measureText(txt);
+  const boxW = metrics.width + 32*dpr;
+  const boxH = 50*dpr;
+
+  let bx = x - boxW / 2;
+  let by = y + 18*dpr;
+
+  const leftLimit = 76*dpr;
+  const rightLimit = canvas.width - 18*dpr;
+  const topLimit = padT + 6*dpr;
+  const bottomLimit = bottom - 6*dpr;
+
+  if(bx < leftLimit) bx = leftLimit;
+  if(bx + boxW > rightLimit) bx = rightLimit - boxW;
+  if(by + boxH > bottomLimit) by = y - boxH - 18*dpr;
+  if(by < topLimit) by = topLimit;
+
+  const r = 12*dpr;
+  ctx.beginPath();
+  ctx.moveTo(bx+r, by);
+  ctx.lineTo(bx+boxW-r, by);
+  ctx.quadraticCurveTo(bx+boxW, by, bx+boxW, by+r);
+  ctx.lineTo(bx+boxW, by+boxH-r);
+  ctx.quadraticCurveTo(bx+boxW, by+boxH, bx+boxW-r, by+boxH);
+  ctx.lineTo(bx+r, by+boxH);
+  ctx.quadraticCurveTo(bx, by+boxH, bx, by+boxH-r);
+  ctx.lineTo(bx, by+r);
+  ctx.quadraticCurveTo(bx, by, bx+r, by);
+  ctx.closePath();
+
+  ctx.fillStyle = "rgba(3, 7, 18, 0.92)";
+  ctx.fill();
+  ctx.lineWidth = 2.5*dpr;
+  ctx.strokeStyle = "#f59e0b";
+  ctx.stroke();
+
+  ctx.fillStyle = "#ffffff";
+  ctx.fillText(txt, bx + boxW/2, by + boxH/2 + 1*dpr);
+  ctx.restore();
+}
+
+
 function drawForecast(x, padL, padT, padB, w, h){
   const fs = forecastStats();
   if(!fs || fs.endDist <= viewStart || fs.endDist > viewEnd + 1){ forecastLabelHit=null; return; }
@@ -877,7 +1072,7 @@ function drawForecast(x, padL, padT, padB, w, h){
 
   let lx = fx - labelW/2;
   lx = clamp(lx, padL, w - 16*devicePixelRatio - labelW);
-  const ly = padT + 7*devicePixelRatio;
+  let ly = bottom - labelH - 8*devicePixelRatio;
 
   ctx.fillStyle = 'rgba(15, 23, 42, 0.88)';
   ctx.strokeStyle = '#a78bfa';
@@ -985,6 +1180,52 @@ function drawDistanceScale(padL, padR, padT, padB, w, h){
   ctx.textAlign = 'start';
   ctx.textBaseline = 'alphabetic';
 }
+
+function routeIndexAtOrNearDistForward50(dist){
+  if(!route || !route.length) return null;
+  let best = 0;
+  let bestD = Math.abs(route[0].dist - dist);
+  for(let i=1; i<route.length; i++){
+    const d = Math.abs(route[i].dist - dist);
+    if(d < bestD){
+      bestD = d;
+      best = i;
+    }
+  }
+  return best;
+}
+
+function computeForwardSlope50m(){
+  if(!route || !route.length || markerIdx == null || !route[markerIdx]) return null;
+  const start = route[markerIdx].dist;
+  const end = Math.min(totalDist || start, start + 50);
+  if(end <= start + 1) return null;
+
+  const i1 = markerIdx;
+  const i2 = routeIndexAtOrNearDistForward50(end);
+  if(i2 == null || i2 === i1 || !route[i2]) return null;
+
+  const dd = route[i2].dist - route[i1].dist;
+  if(!Number.isFinite(dd) || dd <= 1) return null;
+
+  const dh = route[i2].ele - route[i1].ele;
+  if(!Number.isFinite(dh)) return null;
+
+  return 100 * dh / dd;
+}
+
+function updateForwardSlope50Field(){
+  const el = document.getElementById("slopeForward50Value");
+  if(!el) return;
+  const slope = computeForwardSlope50m();
+  if(slope === null || !Number.isFinite(slope)){
+    el.textContent = "-";
+  } else {
+    el.textContent = (slope >= 0 ? "+" : "") + slope.toFixed(1) + " %";
+  }
+}
+
+
 function updateInfo(gpsD=null, acc=null){
   if(!route.length) return;
   if(gpsD!==null) lastGpsDistance=gpsD;
@@ -1009,6 +1250,7 @@ function updateInfo(gpsD=null, acc=null){
     else if(lastGpsDistance<=500) statusEl.innerHTML='<span class="accent">GPS aktywny: jesteś 100–500 m od śladu.</span>';
     else statusEl.innerHTML='<span class="bad">GPS aktywny: jesteś ponad 500 m od śladu.</span>';
   }
+  updateForwardSlope50Field();
 }
 setInterval(()=>{
   if(route.length) updateInfo();
@@ -1150,6 +1392,39 @@ function endPointer(e){
 }
 canvas.addEventListener('pointerup', endPointer);
 canvas.addEventListener('pointercancel', endPointer);
+
+
+function yUp(){
+  if(typeof yStretch === "undefined" || !Number.isFinite(yStretch) || yStretch <= 0) yStretch = 1;
+  yStretch = Math.min(64, yStretch * 1.35);
+  draw();
+}
+
+function yDown(){
+  if(typeof yStretch === "undefined" || !Number.isFinite(yStretch) || yStretch <= 0) yStretch = 1;
+  yStretch = Math.max(0.05, yStretch / 1.35);
+  draw();
+}
+
+function bindYButtons(){
+  const up = document.getElementById("yUpBtn");
+  const down = document.getElementById("yDownBtn");
+
+  if(up && up.dataset.boundY !== "1"){
+    up.dataset.boundY = "1";
+    up.addEventListener("click", yUp);
+  }
+
+  if(down && down.dataset.boundY !== "1"){
+    down.dataset.boundY = "1";
+    down.addEventListener("click", yDown);
+  }
+}
+
+document.addEventListener("DOMContentLoaded", bindYButtons);
+setTimeout(bindYButtons, 0);
+setTimeout(bindYButtons, 500);
+
 window.addEventListener('resize', resize);
 if('serviceWorker' in navigator){ navigator.serviceWorker.register('service-worker.js').catch(()=>{}); }
 function initializeApp(){
