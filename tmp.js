@@ -1,77 +1,4 @@
-<!doctype html>
-<html lang="pl">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Profil trasy GPS offline</title>
-<link rel="manifest" href="manifest.json">
-<style>
-:root { --bg:#0f172a; --panel:#111827; --text:#e5e7eb; --muted:#9ca3af; --line:#38bdf8; --accent:#f59e0b; --bad:#ef4444; --ok:#22c55e; }
-* { box-sizing: border-box; }
-body { margin:0; font-family: system-ui, -apple-system, Segoe UI, sans-serif; background:var(--bg); color:var(--text); }
-header { padding:12px 14px; background:#020617; border-bottom:1px solid #1f2937; }
-h1 { font-size:18px; margin:0 0 4px 0; }
-.small { color:var(--muted); font-size:12px; }
-main { padding:10px; display:grid; gap:10px; }
-.panel { background:var(--panel); border:1px solid #1f2937; border-radius:14px; padding:10px; }
-.info-panel { display:flex; flex-direction:column; gap:10px; }
-.info-panel .controls { margin-top:auto; }
-.controls { display:flex; flex-wrap:wrap; gap:8px; align-items:center; }
-button, label.file { color:var(--text); border:1px solid #374151; padding:9px 11px; border-radius:10px; font-size:14px; }
-button.blue, label.file.blue { background:#2563eb; border-color:#1d4ed8; }
-button.green { background:#16a34a; border-color:#15803d; }
-button.orange { background:#f59e0b; border-color:#d97706; color:#111827; font-weight:700; }
-button.red { background:#dc2626; border-color:#b91c1c; }
-button:active, label.file:active { transform:translateY(1px); }
-input[type=file] { display:none; }
-input.speed-input { width:100%; margin-top:6px; background:#111827; color:var(--text); border:1px solid #374151; border-radius:10px; padding:8px; font-size:18px; font-weight:700; }
-input.point-input { min-width:160px; flex:1 1 180px; background:#111827; color:var(--text); border:1px solid #374151; border-radius:10px; padding:9px 11px; font-size:14px; }
-canvas { width:100%; height:46vh; min-height:280px; display:block; background:#020617; border-radius:12px; touch-action:none; }
-.grid { display:grid; grid-template-columns: repeat(2, 1fr); gap:8px; }
-.tile { background:#020617; border:1px solid #1f2937; border-radius:12px; padding:9px; }
-.tile b { display:block; font-size:18px; margin-top:3px; }
-.tile b.coord { font-size:16px; letter-spacing:0.2px; }
-.status { font-size:14px; color:var(--muted); }
-.ok { color:var(--ok); } .bad { color:var(--bad); } .accent { color:var(--accent); }
-.range { width:100%; }
-@media (orientation:landscape) { main { grid-template-columns: 1.6fr 1fr; } canvas { height:72vh; } }
-</style>
-</head>
-<body>
-<header>
-  <h1>Profil trasy GPS offline</h1>
-</header>
-<main>
-<section class="panel">
-  <canvas id="profile"></canvas>
-  <input id="sim" class="range" type="range" min="0" max="1000" value="0">
-</section>
-<section class="panel info-panel">
-  <p id="status" class="status">Wczytaj plik GPX albo użyj trasy wbudowanej do testu interfejsu.</p>
-  <div class="grid">
-    <div class="tile">Km aplikacji<b id="roughKm">-</b></div>
-    <div class="tile">Do końca GPX<b id="left">-</b></div>
-    <div class="tile">Wysokość z GPX<b id="ele">-</b></div>
-    <div class="tile">Cel<b id="eta">-</b></div>
-    <div class="tile">Pozycja GPS<b id="gpxCoord">-</b></div>
-    <div class="tile">Prędkość aplikacji<b id="appSpeed">-</b></div>
-    <div class="tile">Prędkość [km/h]<input id="manualSpeed" class="speed-input" type="number" inputmode="decimal" min="0" step="0.1" placeholder="np. 14.5"></div>
-  </div>
-  <div class="controls">
-    <label class="file blue">Wczytaj GPX<input id="file" type="file" accept=".gpx,application/gpx+xml,text/xml"></label>
-    <button id="gpsBtn" class="blue">Start GPS</button>
-    <button id="fitBtn" class="green">Pokaż całość</button>
-    <button id="zoomInXBtn" class="green">Powiększ X</button>
-    <button id="zoomOutXBtn" class="green">Pomniejsz X</button>
-    <button id="zoomInYBtn" class="green">Powiększ Y</button>
-    <button id="zoomOutYBtn" class="green">Pomniejsz Y</button>
-    <button id="centerBtn" class="orange">Do pozycji</button>
-    <button id="manualPosBtn" class="red">Ustaw km</button>
-  </div>
-</section>
-</main>
-<script src="trasa.js"></script>
-<script>
+
 let route = [];
 let totalDist = 0;
 let markerIdx = 0;
@@ -159,30 +86,6 @@ function routeSpecificKey(baseKey){
 function allVisiblePoints(){
   return [...gpxNotePoints];
 }
-
-function clearGpxNotePoints(){
-  gpxNotePoints = [];
-}
-
-function addGpxNotePoints(notePoints){
-  gpxNotePoints = [];
-  if(!Array.isArray(notePoints) || !route.length) return;
-  for(const p of notePoints){
-    if(!p || !Number.isFinite(p.lat) || !Number.isFinite(p.lon) || !p.label) continue;
-    const n = nearestGlobal(p.lat, p.lon);
-    // Waypoint może leżeć minimalnie obok śladu. Zostawiamy go, ale zapisujemy odległość kontrolną.
-    gpxNotePoints.push({
-      label:String(p.label).trim(),
-      dist:route[n.idx].dist,
-      idx:n.idx,
-      off:n.d,
-      lat:p.lat,
-      lon:p.lon
-    });
-  }
-  gpxNotePoints.sort((a,b)=>a.dist-b.dist);
-}
-
 function escapeHtml(text){
   return String(text).replace(/[&<>"]/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[ch]));
 }
@@ -234,7 +137,6 @@ function nearestIndexByDistanceMeters(targetDist){
   return best;
 }
 function prepare(points){
-  gpxNotePoints = [];
   route = points.filter(p => Number.isFinite(p.lat) && Number.isFinite(p.lon));
   let d=0;
   for(let i=0;i<route.length;i++){
@@ -527,18 +429,6 @@ function manualSpeedMps(){
   const kmh = parseFloat(raw);
   if(!Number.isFinite(kmh) || kmh <= 0) return null;
   return kmh / 3.6;
-}
-function appSpeedKmh(){
-  if(!roughTrack || !Array.isArray(roughTrack.points) || roughTrack.points.length < 2) return null;
-  const first = roughTrack.points[0];
-  const last = roughTrack.points[roughTrack.points.length - 1];
-  if(!first || !last) return null;
-  const dtH = ((last.t || 0) - (first.t || 0)) / 3600000;
-  const ddKm = ((last.dist || 0) - (first.dist || 0)) / 1000;
-  if(!Number.isFinite(dtH) || !Number.isFinite(ddKm) || dtH <= 1/60 || ddKm <= 0.02) return null;
-  const v = ddKm / dtH;
-  if(!Number.isFinite(v) || v < 0 || v > 120) return null;
-  return v;
 }
 function etaToEndSeconds(){
   if(!route.length) return null;
@@ -845,18 +735,16 @@ function updateInfo(gpsD=null, acc=null){
   if(gpsD!==null) lastGpsDistance=gpsD;
   if(acc!==null) lastGpsAccuracy=acc;
   const p=route[markerIdx];
+  document.getElementById('km').textContent=(p.dist/1000).toFixed(2)+' km';
   const coordEl = document.getElementById('gpxCoord');
   if(coordEl){ coordEl.textContent = formatGpxCoord(p); coordEl.classList.add('coord'); }
   const rk = document.getElementById('roughKm');
   if(rk) rk.textContent = roughTrack && Number.isFinite(roughTrack.dist) ? (roughTrack.dist/1000).toFixed(2)+' km' : '-';
-  const appSpeedEl = document.getElementById('appSpeed');
-  const appV = appSpeedKmh();
-  if(appSpeedEl) appSpeedEl.textContent = appV === null ? '-' : appV.toFixed(1) + ' km/h';
   document.getElementById('ele').textContent=Math.round(p.ele)+' m';
   document.getElementById('left').textContent=((totalDist-p.dist)/1000).toFixed(2)+' km';
+  document.getElementById('clock').textContent=formatClock();
   document.getElementById('eta').textContent=formatArrivalTime(etaToEndSeconds());
-  const offEl = document.getElementById('off');
-  if(offEl) offEl.textContent=lastGpsDistance==null?'-':Math.round(lastGpsDistance)+' m';
+  document.getElementById('off').textContent=lastGpsDistance==null?'-':Math.round(lastGpsDistance)+' m';
   const accEl = document.getElementById('acc');
   if(accEl) accEl.textContent=lastGpsAccuracy==null?'-':Math.round(lastGpsAccuracy)+' m';
   if(lastGpsDistance!=null){
@@ -890,7 +778,6 @@ document.getElementById('file').addEventListener('change', async e=>{
     }
     prepare(data.routePoints);
     addGpxNotePoints(data.notePoints);
-    draw();
 
     // Po wczytaniu pliku wymuszamy pełny widok i ponowne rysowanie
     // dopiero po przeliczeniu rozmiaru canvas.
@@ -1007,6 +894,3 @@ function initializeApp(){
   }
 }
 initializeApp();
-</script>
-</body>
-</html>
