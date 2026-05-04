@@ -38,7 +38,7 @@ canvas { width:100%; height:46vh; min-height:280px; display:block; background:#0
 
 .btn-blue { background:#2563eb; color:white; }
 
-/* ===== v47: większy interfejs terenowy ===== */
+/* ===== v48: większy interfejs terenowy ===== */
 button,
 .btn,
 input[type="button"],
@@ -84,7 +84,7 @@ select {
 }
 
 
-/* ===== v47: przyciski centralnie w dwóch rzędach ===== */
+/* ===== v48: przyciski centralnie w dwóch rzędach ===== */
 .controls, .button-row, .buttons, .actions, .toolbar, .bottom-buttons {
   display: flex !important;
   flex-wrap: wrap !important;
@@ -109,7 +109,7 @@ label[for="gpxFileInput"], label[for="gpxInput"], .gpx-button, .file-button, .fi
 }
 
 
-/* v47: Nachylenie 50 m jako normalny kafelek danych */
+/* v48: Nachylenie 50 m jako normalny kafelek danych */
 #slopeForward50Value {
   font-weight: 700 !important;
 }
@@ -814,7 +814,15 @@ ctx.strokeStyle='#020617'; ctx.lineWidth=2*devicePixelRatio; ctx.stroke();
     ctx.textBaseline='middle';
     const labelW = ctx.measureText(slopeText).width + 24*devicePixelRatio;
     const labelH = 32*devicePixelRatio;
-  /* v47 forecast label at bottom */
+  /* v48 forecast label edge correction */
+  const chartRightLimit = canvas.width - 18*devicePixelRatio;
+  const chartLeftLimit = 76*devicePixelRatio;
+  if (fx + labelW + 10*devicePixelRatio > chartRightLimit) {
+    lx = fx - labelW - 10*devicePixelRatio;
+  }
+  if (lx < chartLeftLimit) lx = chartLeftLimit;
+  if (lx + labelW > chartRightLimit) lx = chartRightLimit - labelW;
+  /* v48 forecast label at bottom */
   ly = bottom - labelH - 8*devicePixelRatio;
     let lx = clamp(mx - labelW/2, padL, w - padR - labelW);
     let ly = my - 46*devicePixelRatio;
@@ -886,7 +894,7 @@ function forecastStats(){
 
 function clampForecastRatio(v){
   if(!Number.isFinite(v)) return 0.25;
-  return clamp(v, 0.05, 0.90);
+  return clamp(v, 0.03, 1.00);
 }
 function setForecastFromClientX(clientX){
   if(!route.length || viewEnd<=viewStart) return;
@@ -908,8 +916,10 @@ function isForecastHandle(clientX, clientY){
   const y=(clientY-rect.top)*devicePixelRatio;
   const h=forecastLabelHit;
   const labelHit=x>=h.lx && x<=h.lx+h.labelW && y>=h.ly && y<=h.ly+h.labelH;
-  const lineHit=Math.abs(x-h.fx)<=18*devicePixelRatio && y>=h.padT && y<=h.bottom;
-  return labelHit || lineHit;
+  const lineHit=Math.abs(x-h.fx)<=34*devicePixelRatio && y>=h.padT && y<=h.bottom;
+  // v48 bottom forecast handle zone
+  const bottomZone = Math.abs(x-h.fx) <= 46*devicePixelRatio && y >= (h.bottom - 90*devicePixelRatio) && y <= h.bottom;
+  return labelHit || lineHit || bottomZone;
 }
 
 
