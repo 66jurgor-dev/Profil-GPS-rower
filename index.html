@@ -38,7 +38,7 @@ canvas { width:100%; height:46vh; min-height:280px; display:block; background:#0
 
 .btn-blue { background:#2563eb; color:white; }
 
-/* ===== v52: większy interfejs terenowy ===== */
+/* ===== v53: większy interfejs terenowy ===== */
 button,
 .btn,
 input[type="button"],
@@ -84,7 +84,7 @@ select {
 }
 
 
-/* ===== v52: przyciski centralnie w dwóch rzędach ===== */
+/* ===== v53: przyciski centralnie w dwóch rzędach ===== */
 .controls, .button-row, .buttons, .actions, .toolbar, .bottom-buttons {
   display: flex !important;
   flex-wrap: wrap !important;
@@ -109,13 +109,13 @@ label[for="gpxFileInput"], label[for="gpxInput"], .gpx-button, .file-button, .fi
 }
 
 
-/* v52: Nachylenie 50 m jako normalny kafelek danych */
+/* v53: Nachylenie 50 m jako normalny kafelek danych */
 #slopeForward50Value {
   font-weight: 700 !important;
 }
 
 
-/* ===== v52: jednakowa szerokość przycisków ===== */
+/* ===== v53: jednakowa szerokość przycisków ===== */
 .controls button,
 .button-row button,
 .buttons button,
@@ -136,7 +136,7 @@ label:has(input[type="file"]) {
 }
 
 
-/* ===== v52: usunięcie tekstów pomocniczych ===== */
+/* ===== v53: usunięcie tekstów pomocniczych ===== */
 .hint,
 .help,
 .status-text,
@@ -148,7 +148,7 @@ label:has(input[type="file"]) {
 }
 
 
-/* ===== v52: pasek statusu GPS ===== */
+/* ===== v53: pasek statusu GPS ===== */
 #status.status-bar,
 #status {
   display: block !important;
@@ -173,7 +173,7 @@ label:has(input[type="file"]) {
 <main>
 <section class="panel">
   <canvas id="profile"></canvas>
-  <input id="sim" class="range" type="range" id="positionSlider" min="0" max="1000" value="0">
+  <input id="positionSlider" type="range" class="range" min="0" max="1000" step="1" value="0">
 </section>
 <section class="panel info-panel">
 <div class="grid">
@@ -189,7 +189,7 @@ label:has(input[type="file"]) {
   </div>
 <div class="controls">
 <label class="file blue">Wczytaj GPX<input id="file" type="file" accept=".gpx,application/gpx+xml,text/xml"></label>
-    <button id="gpsBtn" class="blue">Start GPS</button>
+    <button id="gpsBtn" onclick="startGpsV53()" class="blue">Start GPS</button>
     <button id="fitBtn" class="green">Pokaż całość</button>
       <button id="yUpBtn" onclick="yUp()" class="green">Y UP</button>
       <button id="yDownBtn" onclick="yDown()" class="green">Y DOWN</button>
@@ -492,6 +492,10 @@ function parseGpxData(text){
     label:bestPointLabel(n)
   })).filter(p => Number.isFinite(p.lat) && Number.isFinite(p.lon) && p.label);
   return {routePoints, notePoints};
+
+  bindPositionSliderV53();
+
+  updatePositionSliderV53();
 }
 function nearestGlobal(lat, lon){
   const p={lat, lon};
@@ -863,7 +867,7 @@ ctx.strokeStyle='#020617'; ctx.lineWidth=2*devicePixelRatio; ctx.stroke();
     ctx.textBaseline='middle';
     const labelW = ctx.measureText(slopeText).width + 24*devicePixelRatio;
     const labelH = 32*devicePixelRatio;
-  /* v52 forecast label edge correction */
+  /* v53 forecast label edge correction */
   const chartRightLimit = canvas.width - 18*devicePixelRatio;
   const chartLeftLimit = 76*devicePixelRatio;
   if (fx + labelW + 10*devicePixelRatio > chartRightLimit) {
@@ -871,7 +875,7 @@ ctx.strokeStyle='#020617'; ctx.lineWidth=2*devicePixelRatio; ctx.stroke();
   }
   if (lx < chartLeftLimit) lx = chartLeftLimit;
   if (lx + labelW > chartRightLimit) lx = chartRightLimit - labelW;
-  /* v52 forecast label at bottom */
+  /* v53 forecast label at bottom */
   ly = bottom - labelH - 8*devicePixelRatio;
     let lx = clamp(mx - labelW/2, padL, w - padR - labelW);
     let ly = my - 46*devicePixelRatio;
@@ -895,7 +899,9 @@ ctx.strokeStyle='#020617'; ctx.lineWidth=2*devicePixelRatio; ctx.stroke();
   // drawForwardSlopeFieldInDraw
   updateForwardSlope50Field();
 
-  updateSliderFromMarkerV52();
+  updateSliderFromMarkerV53();
+
+  updatePositionSliderV53();
 }
 
 
@@ -968,7 +974,7 @@ function isForecastHandle(clientX, clientY){
   const h=forecastLabelHit;
   const labelHit=x>=h.lx && x<=h.lx+h.labelW && y>=h.ly && y<=h.ly+h.labelH;
   const lineHit=Math.abs(x-h.fx)<=34*devicePixelRatio && y>=h.padT && y<=h.bottom;
-  // v52 bottom forecast handle zone
+  // v53 bottom forecast handle zone
   const bottomZone = Math.abs(x-h.fx) <= 46*devicePixelRatio && y >= (h.bottom - 90*devicePixelRatio) && y <= h.bottom;
   return labelHit || lineHit || bottomZone;
 }
@@ -1313,7 +1319,9 @@ function updateInfo(gpsD=null, acc=null){
   }
   updateForwardSlope50Field();
 
-  updateSliderFromMarkerV52();
+  updateSliderFromMarkerV53();
+
+  updatePositionSliderV53();
 }
 setInterval(()=>{
   if(route.length) updateInfo();
@@ -1361,7 +1369,7 @@ document.getElementById('file').addEventListener('change', async e=>{
   }
 });
 document.getElementById('gpsBtn').addEventListener('click', ()=>{
-  setGpsStatusV52('GPS: uruchamianie');
+  setGpsStatusV53('GPS: uruchamianie');
   if(watchId!=null){ navigator.geolocation.clearWatch(watchId); watchId=null; statusEl.textContent='GPS zatrzymany.'; return; }
   trackingInitialized=false;
   updateInfo();
@@ -1490,18 +1498,19 @@ setTimeout(bindYButtons, 0);
 setTimeout(bindYButtons, 500);
 
 
-function setGpsStatusV52(text){
+function setGpsStatusV52(text){ const el=document.getElementById('status'); if(el) el.textContent=text; }
+function setGpsStatusV53(text){
   const el = document.getElementById('status');
   if(el) el.textContent = text;
 }
 
 
-// ===== v52: naprawa suwaka pozycji =====
+// ===== v53: naprawa suwaka pozycji =====
 function getPositionSliderEl(){
   return document.getElementById("positionSlider") || document.querySelector('input[type="range"]');
 }
 
-function setMarkerByKmV52(km){
+function setMarkerByKmV53(km){
   if(!route || !route.length) return;
   let targetDist = Number(km) * 1000;
   if(!Number.isFinite(targetDist)) return;
@@ -1526,7 +1535,7 @@ function setMarkerByKmV52(km){
   if(typeof updateInfo === "function") updateInfo();
 }
 
-function updateSliderFromMarkerV52(){
+function updateSliderFromMarkerV53(){
   const s = getPositionSliderEl();
   if(!s || !route || !route.length || markerIdx == null || !route[markerIdx]) return;
   const km = route[markerIdx].dist / 1000;
@@ -1534,16 +1543,16 @@ function updateSliderFromMarkerV52(){
   s.value = km;
 }
 
-function bindPositionSliderV52(){
+function bindPositionSliderV53(){
   const s = getPositionSliderEl();
-  if(!s || s.dataset.boundV52 === "1") return;
-  s.dataset.boundV52 = "1";
+  if(!s || s.dataset.boundV53 === "1") return;
+  s.dataset.boundV53 = "1";
   s.min = "0";
   if(route && route.length && Number.isFinite(totalDist)) s.max = (totalDist / 1000).toFixed(3);
   s.step = "0.01";
 
   const handler = function(){
-    setMarkerByKmV52(s.value);
+    setMarkerByKmV53(s.value);
   };
 
   s.addEventListener("input", handler);
@@ -1552,10 +1561,195 @@ function bindPositionSliderV52(){
   s.addEventListener("touchstart", function(e){ e.stopPropagation(); }, {passive:true});
 }
 
-document.addEventListener("DOMContentLoaded", bindPositionSliderV52);
-setTimeout(bindPositionSliderV52, 0);
-setTimeout(bindPositionSliderV52, 500);
-setInterval(bindPositionSliderV52, 1500);
+document.addEventListener("DOMContentLoaded", bindPositionSliderV53);
+setTimeout(bindPositionSliderV53, 0);
+setTimeout(bindPositionSliderV53, 500);
+setInterval(bindPositionSliderV53, 1500);
+
+
+// ===== v53: suwak pozycji 0-1000 =====
+let suppressSliderUpdateV53 = false;
+
+function nearestRouteIndexByDistanceV53(distMeters){
+  if(!route || !route.length) return 0;
+  let lo = 0;
+  let hi = route.length - 1;
+
+  while(lo < hi){
+    const mid = Math.floor((lo + hi) / 2);
+    if(route[mid].dist < distMeters) lo = mid + 1;
+    else hi = mid;
+  }
+
+  if(lo > 0 && Math.abs(route[lo-1].dist - distMeters) < Math.abs(route[lo].dist - distMeters)){
+    return lo - 1;
+  }
+  return lo;
+}
+
+function setMarkerByDistanceV53(distMeters, source){
+  if(!route || !route.length) return;
+
+  const total = Number.isFinite(totalDist) && totalDist > 0 ? totalDist : route[route.length-1].dist;
+  const d = Math.max(0, Math.min(total, Number(distMeters) || 0));
+  const idx = nearestRouteIndexByDistanceV53(d);
+
+  markerIdx = idx;
+
+  // Synchronizacja zmiennych używanych przez różne wersje aplikacji.
+  try { currentGpxKm = route[idx].dist / 1000; } catch(e) {}
+  try { lastProjectedKm = route[idx].dist / 1000; } catch(e) {}
+  try { roughKm = route[idx].dist / 1000; } catch(e) {}
+
+  // Widok X: nie skaczemy agresywnie, tylko pilnujemy, żeby marker był widoczny.
+  if(typeof ensureMarkerVisible === "function") ensureMarkerVisible();
+  else if(typeof keepMarkerVisible === "function") keepMarkerVisible();
+  else {
+    const width = viewEnd - viewStart;
+    if(route[idx].dist < viewStart) {
+      viewStart = Math.max(0, route[idx].dist - width * 0.15);
+      viewEnd = viewStart + width;
+    } else if(route[idx].dist > viewEnd) {
+      viewEnd = Math.min(total, route[idx].dist + width * 0.15);
+      viewStart = viewEnd - width;
+    }
+  }
+
+  updatePositionSliderV53();
+  if(typeof updateInfo === "function") updateInfo();
+  if(typeof draw === "function") draw();
+}
+
+function updatePositionSliderV53(){
+  const s = document.getElementById("positionSlider");
+  if(!s || !route || !route.length || markerIdx == null || !route[markerIdx]) return;
+  const total = Number.isFinite(totalDist) && totalDist > 0 ? totalDist : route[route.length-1].dist;
+  const value = total > 0 ? Math.round((route[markerIdx].dist / total) * 1000) : 0;
+  suppressSliderUpdateV53 = true;
+  s.value = String(Math.max(0, Math.min(1000, value)));
+  suppressSliderUpdateV53 = false;
+}
+
+function bindPositionSliderV53(){
+  const s = document.getElementById("positionSlider");
+  if(!s || s.dataset.boundV53 === "1") return;
+  s.dataset.boundV53 = "1";
+  s.min = "0";
+  s.max = "1000";
+  s.step = "1";
+
+  const handler = function(){
+    if(suppressSliderUpdateV53) return;
+    if(!route || !route.length) return;
+    const total = Number.isFinite(totalDist) && totalDist > 0 ? totalDist : route[route.length-1].dist;
+    const frac = (Number(s.value) || 0) / 1000;
+    setMarkerByDistanceV53(frac * total, "slider");
+  };
+
+  s.addEventListener("input", handler);
+  s.addEventListener("change", handler);
+  s.addEventListener("pointerdown", e => e.stopPropagation());
+  s.addEventListener("touchstart", e => e.stopPropagation(), {passive:true});
+}
+
+document.addEventListener("DOMContentLoaded", bindPositionSliderV53);
+setTimeout(bindPositionSliderV53, 0);
+setTimeout(bindPositionSliderV53, 400);
+setInterval(bindPositionSliderV53, 1500);
+
+
+// ===== v53: stabilne uruchamianie GPS =====
+let gpsWatchIdV53 = null;
+
+function setGpsStatusV53(text){
+  const el = document.getElementById("status");
+  if(el) el.textContent = text;
+}
+
+function applyGpsPositionV53(pos){
+  if(!pos || !pos.coords) return;
+  const lat = pos.coords.latitude;
+  const lon = pos.coords.longitude;
+
+  if(!Number.isFinite(lat) || !Number.isFinite(lon)) return;
+
+  setGpsStatusV53("GPS: włączony");
+
+  // Użyj istniejącej logiki projektu, jeżeli działa.
+  if(typeof handleGpsPosition === "function"){
+    handleGpsPosition(pos);
+    return;
+  }
+  if(typeof handlePosition === "function"){
+    handlePosition(pos);
+    return;
+  }
+  if(typeof updateFromGps === "function"){
+    updateFromGps(lat, lon, pos.coords.accuracy);
+    return;
+  }
+
+  // Fallback: znajdź najbliższy punkt GPX po współrzędnych.
+  if(route && route.length){
+    let best = 0;
+    let bestD = Infinity;
+    for(let i=0; i<route.length; i++){
+      const p = route[i];
+      if(!Number.isFinite(p.lat) || !Number.isFinite(p.lon)) continue;
+      const dy = (p.lat - lat) * 111320;
+      const dx = (p.lon - lon) * 111320 * Math.cos(lat * Math.PI / 180);
+      const d2 = dx*dx + dy*dy;
+      if(d2 < bestD){ bestD = d2; best = i; }
+    }
+    markerIdx = best;
+    setMarkerByDistanceV53(route[best].dist, "gps");
+  }
+}
+
+function startGpsV53(){
+  if(!navigator.geolocation){
+    setGpsStatusV52("GPS: brak obsługi w przeglądarce");
+    return;
+  }
+
+  setGpsStatusV52("GPS: uruchamianie");
+
+  try{
+    if(gpsWatchIdV53 !== null){
+      navigator.geolocation.clearWatch(gpsWatchIdV53);
+      gpsWatchIdV53 = null;
+    }
+
+    gpsWatchIdV53 = navigator.geolocation.watchPosition(
+      applyGpsPositionV53,
+      err => {
+        setGpsStatusV52("GPS: błąd " + (err && err.message ? err.message : ""));
+      },
+      {enableHighAccuracy:true, maximumAge:5000, timeout:20000}
+    );
+
+    navigator.geolocation.getCurrentPosition(
+      applyGpsPositionV53,
+      err => {
+        setGpsStatusV52("GPS: błąd " + (err && err.message ? err.message : ""));
+      },
+      {enableHighAccuracy:true, maximumAge:5000, timeout:20000}
+    );
+  } catch(e){
+    setGpsStatusV52("GPS: błąd " + e.message);
+  }
+}
+
+function bindGpsButtonV53(){
+  const b = document.getElementById("gpsBtn");
+  if(b && b.dataset.boundGpsV53 !== "1"){
+    b.dataset.boundGpsV53 = "1";
+    b.addEventListener("click", startGpsV53);
+  }
+}
+document.addEventListener("DOMContentLoaded", bindGpsButtonV53);
+setTimeout(bindGpsButtonV53, 0);
+setTimeout(bindGpsButtonV53, 500);
 
 window.addEventListener('resize', resize);
 if('serviceWorker' in navigator){ navigator.serviceWorker.register('service-worker.js').catch(()=>{}); }
