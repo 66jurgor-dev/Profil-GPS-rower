@@ -1,4 +1,4 @@
-const CACHE_NAME = 'profil-gps-pwa-v27-wpt-fix';
+const CACHE_NAME = 'profil-gps-pwa-v63-wpt-fix';
 const FILES = ['index.html','manifest.json','trasa.js'];
 self.addEventListener('install', e => {
   self.skipWaiting();

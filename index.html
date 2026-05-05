@@ -38,7 +38,7 @@ canvas { width:100%; height:46vh; min-height:280px; display:block; background:#0
 
 .btn-blue { background:#2563eb; color:white; }
 
-/* ===== v58: większy interfejs terenowy ===== */
+/* ===== v63: większy interfejs terenowy ===== */
 button,
 .btn,
 input[type="button"],
@@ -84,7 +84,7 @@ select {
 }
 
 
-/* ===== v58: przyciski centralnie w dwóch rzędach ===== */
+/* ===== v63: przyciski centralnie w dwóch rzędach ===== */
 .controls, .button-row, .buttons, .actions, .toolbar, .bottom-buttons {
   display: flex !important;
   flex-wrap: wrap !important;
@@ -109,13 +109,13 @@ label[for="gpxFileInput"], label[for="gpxInput"], .gpx-button, .file-button, .fi
 }
 
 
-/* v58: Nachylenie 50 m jako normalny kafelek danych */
+/* v63: Nachylenie 50 m jako normalny kafelek danych */
 #slopeForward50Value {
   font-weight: 700 !important;
 }
 
 
-/* ===== v58: jednakowa szerokość przycisków ===== */
+/* ===== v63: jednakowa szerokość przycisków ===== */
 .controls button,
 .button-row button,
 .buttons button,
@@ -136,7 +136,7 @@ label:has(input[type="file"]) {
 }
 
 
-/* ===== v58: kompaktowy pasek statusu ===== */
+/* ===== v63: kompaktowy pasek statusu ===== */
 #status.status-bar,
 #status {
   display: block !important;
@@ -150,6 +150,14 @@ label:has(input[type="file"]) {
   color: #cbd5e1;
   font-size: 0.95rem;
   line-height: 1.25;
+}
+
+
+/* ===== v63: Reset czerwony ===== */
+#btnResetCzasu {
+  background: #dc2626 !important;
+  border-color: #b91c1c !important;
+  color: #ffffff !important;
 }
 
 </style>
@@ -183,9 +191,8 @@ label:has(input[type="file"]) {
       <button id="yUpBtn" onclick="yUp()" class="green">Y UP</button>
       <button id="yDownBtn" onclick="yDown()" class="green">Y DOWN</button>
 <button id="centerBtn" class="orange">Do pozycji</button>
-    <button id="btnResetCzasu" class="btn btn-blue" onclick="resetCzasuAplikacji()">Reset</button>
-<button id="manualPosBtn" class="red">Ustaw km</button>
-  </div>
+    <button id="btnResetCzasu" class="red">Reset</button>
+</div>
 </section>
 </main>
 <script src="trasa.js"></script>
@@ -802,7 +809,7 @@ function resize(){
 
 
 
-// ===== v58: ostrożne odczytywanie waypointów WPT z GPX =====
+// ===== v63: ostrożne odczytywanie waypointów WPT z GPX =====
 let gpxWptLabelsV58 = [];
 
 function nearestRouteIndexToLatLonWptV58(lat, lon){
@@ -1470,7 +1477,7 @@ document.getElementById('gpsBtn').addEventListener('click', ()=>{
   {enableHighAccuracy:true, maximumAge:1000, timeout:15000});
 });
 document.getElementById('centerBtn').addEventListener('click', ()=>{ centerViewOnMarker(); draw(); });
-document.getElementById('manualPosBtn').addEventListener('click', setManualPositionFromSlider);
+const manualBtn = document.getElementById('manualPosBtn'); if(manualBtn) manualBtn.addEventListener('click', setManualPositionFromSlider);
 document.getElementById('fitBtn').addEventListener('click', ()=>{ xZoom=1; yStretch=1; viewStart=0; viewEnd=totalDist; draw(); });
 canvas.addEventListener('wheel', e=>{
   e.preventDefault();
@@ -1611,6 +1618,58 @@ function bindWptReaderV58(){
 document.addEventListener("DOMContentLoaded", bindWptReaderV58);
 setTimeout(bindWptReaderV58, 0);
 setTimeout(bindWptReaderV58, 500);
+
+
+
+function resetCzasuAplikacji() {
+  // v63: Reset = dawne Ustaw km + zerowanie czasu i prędkości aplikacji.
+  if(route.length && typeof setManualPositionFromSlider === 'function'){
+    setManualPositionFromSlider();
+  }
+
+  const now = Date.now();
+
+  try {
+    const sig = (typeof currentRouteSignature === 'function') ? currentRouteSignature() : null;
+    speedHistory = {signature: sig, points: []};
+    if(route.length && route[markerIdx] && typeof recordSpeedPosition === 'function'){
+      recordSpeedPosition(route[markerIdx].dist, 'manual');
+    }
+    if(typeof saveSpeedHistory === 'function') saveSpeedHistory();
+  } catch(e) {}
+
+  try { appSpeedKmh = 0; } catch(e) {}
+  try { calculatedSpeedKmh = 0; } catch(e) {}
+  try { appStartTimeMs = now; } catch(e) {}
+  try { routeStartTimeMs = now; } catch(e) {}
+  try { gpsTrackStartTimeMs = now; } catch(e) {}
+
+  if(Array.isArray(window.appGpsHistory)) window.appGpsHistory.length = 0;
+  if(Array.isArray(window.gpsHistory)) window.gpsHistory.length = 0;
+  if(Array.isArray(window.positionHistory)) window.positionHistory.length = 0;
+  if(Array.isArray(window.controlPoints)) window.controlPoints.length = 0;
+
+  if(typeof updateInfo === 'function') updateInfo();
+  if(typeof draw === 'function') draw();
+
+  const st = document.getElementById('status');
+  if(st) st.innerHTML = '<span class="accent">Reset: ustawiono pozycję z suwaka i wyzerowano czas/prędkość.</span>';
+}
+
+
+// v63: bezpieczne bindowanie przycisku Reset
+function bindResetV63(){
+  const b = document.getElementById('btnResetCzasu');
+  if(!b || b.dataset.boundResetV63 === '1') return;
+  b.dataset.boundResetV63 = '1';
+  b.addEventListener('click', function(e){
+    e.preventDefault();
+    resetCzasuAplikacji();
+  });
+}
+document.addEventListener('DOMContentLoaded', bindResetV63);
+setTimeout(bindResetV63, 0);
+setTimeout(bindResetV63, 500);
 
 window.addEventListener('resize', resize);
 if('serviceWorker' in navigator){ navigator.serviceWorker.register('service-worker.js').catch(()=>{}); }
