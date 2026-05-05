@@ -1,4 +1,4 @@
-<!doctype html>
+﻿<!doctype html>
 <html lang="pl">
 <head>
 <meta charset="utf-8">
@@ -38,7 +38,7 @@ canvas { width:100%; height:46vh; min-height:280px; display:block; background:#0
 
 .btn-blue { background:#2563eb; color:white; }
 
-/* ===== v63: większy interfejs terenowy ===== */
+/* ===== v54: większy interfejs terenowy ===== */
 button,
 .btn,
 input[type="button"],
@@ -84,7 +84,7 @@ select {
 }
 
 
-/* ===== v63: przyciski centralnie w dwóch rzędach ===== */
+/* ===== v54: przyciski centralnie w dwóch rzędach ===== */
 .controls, .button-row, .buttons, .actions, .toolbar, .bottom-buttons {
   display: flex !important;
   flex-wrap: wrap !important;
@@ -109,13 +109,13 @@ label[for="gpxFileInput"], label[for="gpxInput"], .gpx-button, .file-button, .fi
 }
 
 
-/* v63: Nachylenie 50 m jako normalny kafelek danych */
+/* v54: Nachylenie 50 m jako normalny kafelek danych */
 #slopeForward50Value {
   font-weight: 700 !important;
 }
 
 
-/* ===== v63: jednakowa szerokość przycisków ===== */
+/* ===== v54: jednakowa szerokość przycisków ===== */
 .controls button,
 .button-row button,
 .buttons button,
@@ -136,7 +136,19 @@ label:has(input[type="file"]) {
 }
 
 
-/* ===== v63: kompaktowy pasek statusu ===== */
+/* ===== v54: usunięcie tekstów pomocniczych ===== */
+.hint,
+.help,
+.status-text,
+.instruction,
+.instructions,
+.note,
+.notes {
+  display: none !important;
+}
+
+
+/* ===== v54: pasek statusu GPS ===== */
 #status.status-bar,
 #status {
   display: block !important;
@@ -152,14 +164,6 @@ label:has(input[type="file"]) {
   line-height: 1.25;
 }
 
-
-/* ===== v63: Reset czerwony ===== */
-#btnResetCzasu {
-  background: #dc2626 !important;
-  border-color: #b91c1c !important;
-  color: #ffffff !important;
-}
-
 </style>
 </head>
 <body>
@@ -169,17 +173,16 @@ label:has(input[type="file"]) {
 <main>
 <section class="panel">
   <canvas id="profile"></canvas>
-  <input id="sim" class="range" type="range" min="0" max="1000" value="0">
+  <input id="positionSlider" type="range" class="range" min="0" max="1000" step="1" value="0">
 </section>
 <section class="panel info-panel">
-<div id="status" class="status-bar">GPS: wyłączony</div>
 <div class="grid">
     <div class="tile">Dystans<b id="roughKm">-</b></div>
     <div class="tile">Pozostało<b id="left">-</b></div>
     <div class="tile">Wysokość z GPX<b id="ele">-</b></div>
-    <div class="tile">Czas do celu<b id="eta">-</b></div>
+    <div class="tile">Koniec o:<b id="eta">-</b></div>
     <div class="tile">Pozycja GPS<b id="gpxCoord">-</b></div>
-    <div class="tile">Prędkość aplikacji<b id="appSpeed">-</b></div>
+    <div class="tile">Prędkość z aplikacji<b id="appSpeed">-</b></div>
     <div class="tile">Nachylenie 50 m<b id="slopeForward50Value">-</b></div>
 
     <div class="tile">Prędkość [km/h]<input id="manualSpeed" class="speed-input" type="number" inputmode="decimal" min="0" step="0.1" placeholder="0 = auto"></div>
@@ -188,13 +191,14 @@ label:has(input[type="file"]) {
 <label class="file blue">Wczytaj GPX<input id="file" type="file" accept=".gpx,application/gpx+xml,text/xml"></label>
     <button id="gpsBtn" class="blue">Start GPS</button>
     <button id="fitBtn" class="green">Pokaż całość</button>
+    <button id="twoKmBtn" class="green">2 km</button>
       <button id="yUpBtn" onclick="yUp()" class="green">Y UP</button>
       <button id="yDownBtn" onclick="yDown()" class="green">Y DOWN</button>
-<button id="centerBtn" class="orange">Do pozycji</button>
-    <button id="btnResetCzasu" class="red">Reset</button>
-</div>
+    <button id="btnResetCzasu" class="red" onclick="resetCzasuAplikacji()">Reset</button>
+  </div>
 </section>
 </main>
+<div id="status"></div>
 <script src="trasa.js"></script>
 <script>
 
@@ -251,10 +255,15 @@ let pinchState = null;
 let forecastOffsetRatio = Number(localStorage.getItem('profilGpsForecastOffsetRatio') || '0.25');
 let forecastDragState = null;
 let forecastLabelHit = null;
+let autoYActive = false;
+let autoYMin = null;
+let autoYMax = null;
+let baseYMin = null;
+let baseYMax = null;
 const activePointers = new Map();
 const canvas = document.getElementById('profile');
 const ctx = canvas.getContext('2d');
-const statusEl = document.getElementById('status') || {textContent:''};
+const statusEl = document.getElementById('status');
 const sim = document.getElementById('sim') || document.getElementById('positionSlider');
 function rad(x){ return x*Math.PI/180; }
 function hav(a,b){
@@ -379,6 +388,45 @@ function resetRoughTrack(dist=0){
   saveRoughTrack();
   updateInfo();
 }
+function resetCzasuAplikacji(){
+  if(!route.length) return;
+
+  speedHistory = {signature:currentRouteSignature(), points:[]};
+  saveSpeedHistory();
+
+  let resetSource = 'slider';
+  let gpsDistance = null;
+  if(Number.isFinite(lastGpsLat) && Number.isFinite(lastGpsLon)){
+    const n = nearestGlobal(lastGpsLat, lastGpsLon);
+    markerIdx = n.idx;
+    gpsDistance = n.d;
+    resetSource = 'gps';
+  } else {
+    const slider = getPositionSliderEl();
+    if(slider){
+      const total = Number.isFinite(totalDist) && totalDist > 0 ? totalDist : route[route.length-1].dist;
+      const frac = clamp((Number(slider.value) || 0) / 1000, 0, 1);
+      markerIdx = nearestIndexByDistanceMeters(frac * total);
+    }
+  }
+
+  if(sim) sim.value = route.length > 1 ? Math.round(1000*markerIdx/(route.length-1)) : 0;
+  trackingInitialized = resetSource === 'gps';
+  manualLockUntil = resetSource === 'gps' ? 0 : Date.now() + MANUAL_LOCK_MS;
+  manualLockCenterDist = resetSource === 'gps' ? null : route[markerIdx].dist;
+  resetRoughTrack(route[markerIdx].dist);
+  recordSpeedPosition(route[markerIdx].dist, 'reset');
+  keepMarkerVisible();
+  updateInfo(gpsDistance, lastGpsAccuracy);
+  draw();
+
+  const appSpeedEl = document.getElementById('appSpeed');
+  if(appSpeedEl) appSpeedEl.textContent = '-';
+  statusEl.textContent = resetSource === 'gps'
+    ? 'Zresetowano czas i prędkość. Pozycję ustawiono według GPS.'
+    : 'Zresetowano czas i prędkość. Brak GPS: pozycję ustawiono według suwaka GPX.';
+}
+
 function updateRoughTrackFromGps(lat, lon, acc){
   if(!route.length) return;
   if(roughTrack.signature !== currentRouteSignature()) loadRoughTrack();
@@ -488,6 +536,10 @@ function parseGpxData(text){
     label:bestPointLabel(n)
   })).filter(p => Number.isFinite(p.lat) && Number.isFinite(p.lon) && p.label);
   return {routePoints, notePoints};
+
+  bindPositionSliderV54();
+
+  updatePositionSliderV54();
 }
 function nearestGlobal(lat, lon){
   const p={lat, lon};
@@ -642,6 +694,36 @@ function applyXZoom(newZoom, keepDist=null){
   viewStart = clamp(center - width/2, 0, maxStart);
   viewEnd = viewStart + width;
   keepMarkerVisible();
+  draw();
+}
+function setViewWidthMeters(widthMeters){
+  if(!route.length || !Number.isFinite(widthMeters) || widthMeters <= 0) return;
+  const width = Math.min(totalDist || widthMeters, widthMeters);
+  if(width >= totalDist){
+    xZoom = 1;
+    viewStart = 0;
+    viewEnd = totalDist;
+  } else {
+    const markerDist = route[markerIdx] ? route[markerIdx].dist : 0;
+    viewStart = clamp(markerDist - width/2, 0, Math.max(0, totalDist - width));
+    viewEnd = viewStart + width;
+    xZoom = totalDist / width;
+  }
+  draw();
+}
+function setForwardViewMeters(widthMeters){
+  if(!route.length || !Number.isFinite(widthMeters) || widthMeters <= 0) return;
+  const markerDist = route[markerIdx] ? route[markerIdx].dist : 0;
+  const width = Math.min(totalDist || widthMeters, widthMeters);
+  if(width >= totalDist){
+    xZoom = 1;
+    viewStart = 0;
+    viewEnd = totalDist;
+  } else {
+    viewStart = clamp(markerDist, 0, Math.max(0, totalDist - width));
+    viewEnd = viewStart + width;
+    xZoom = totalDist / width;
+  }
   draw();
 }
 function distFromCanvasX(clientX){
@@ -808,112 +890,6 @@ function resize(){
 }
 
 
-
-// ===== v63: ostrożne odczytywanie waypointów WPT z GPX =====
-let gpxWptLabelsV58 = [];
-
-function nearestRouteIndexToLatLonWptV58(lat, lon){
-  if(!route || !route.length) return 0;
-  let best = 0;
-  let bestD = Infinity;
-  for(let i=0; i<route.length; i++){
-    const p = route[i];
-    if(!Number.isFinite(p.lat) || !Number.isFinite(p.lon)) continue;
-    const dy = (p.lat - lat) * 111320;
-    const dx = (p.lon - lon) * 111320 * Math.cos(lat * Math.PI / 180);
-    const d2 = dx*dx + dy*dy;
-    if(d2 < bestD){
-      bestD = d2;
-      best = i;
-    }
-  }
-  return best;
-}
-
-function extractWptLabelsFromGpxTextV58(gpxText){
-  gpxWptLabelsV58 = [];
-  if(!gpxText || !route || !route.length) return;
-
-  const doc = new DOMParser().parseFromString(gpxText, "application/xml");
-  const wpts = Array.from(doc.getElementsByTagNameNS("*", "wpt"));
-  if(!wpts.length){
-    // fallback for browsers/files without namespace support
-    wpts.push(...Array.from(doc.getElementsByTagName("wpt")));
-  }
-
-  const labels = [];
-  for(const w of wpts){
-    const lat = Number(w.getAttribute("lat"));
-    const lon = Number(w.getAttribute("lon"));
-    if(!Number.isFinite(lat) || !Number.isFinite(lon)) continue;
-
-    const getTxt = tag => {
-      const a = w.getElementsByTagNameNS("*", tag);
-      if(a && a.length && a[0].textContent) return a[0].textContent.trim();
-      const b = w.getElementsByTagName(tag);
-      if(b && b.length && b[0].textContent) return b[0].textContent.trim();
-      return "";
-    };
-
-    const name = getTxt("name") || getTxt("cmt") || getTxt("desc");
-    if(!name) continue;
-
-    const idx = nearestRouteIndexToLatLonWptV58(lat, lon);
-    labels.push({
-      name,
-      label: name,
-      dist: route[idx].dist,
-      ele: route[idx].ele,
-      lat,
-      lon,
-      idx
-    });
-  }
-
-  gpxWptLabelsV58 = labels;
-
-  // Aktualizacja możliwych nazw tablic używanych przez starsze wersje.
-  try { gpxNotePoints = labels; } catch(e) {}
-  try { userPoints = labels; } catch(e) {}
-  window.gpxWptLabelsV58 = labels;
-}
-
-function drawWptLabelsV58(){
-  if(!gpxWptLabelsV58 || !gpxWptLabelsV58.length) return;
-  if(typeof xForDist !== "function" || typeof yForEle !== "function") return;
-
-  const dpr = devicePixelRatio || 1;
-  ctx.save();
-  ctx.font = `bold ${22*dpr}px system-ui, -apple-system, Segoe UI, sans-serif`;
-  ctx.textAlign = "center";
-  ctx.textBaseline = "bottom";
-
-  for(const p of gpxWptLabelsV58){
-    if(p.dist < viewStart || p.dist > viewEnd) continue;
-
-    const x = xForDist(p.dist);
-    const y = yForEle(p.ele);
-
-    ctx.strokeStyle = "#f8fafc";
-    ctx.lineWidth = 3*dpr;
-    ctx.beginPath();
-    ctx.moveTo(x, y - 8*dpr);
-    ctx.lineTo(x, y - 34*dpr);
-    ctx.stroke();
-
-    ctx.fillStyle = "#f8fafc";
-    ctx.strokeStyle = "rgba(3,7,18,0.95)";
-    ctx.lineWidth = 4*dpr;
-    ctx.strokeText(p.name, x, y - 38*dpr);
-    ctx.fillText(p.name, x, y - 38*dpr);
-  }
-
-  ctx.restore();
-
-  drawWptLabelsV58();
-}
-
-
 function draw(){
   if(!route.length) return;
   if(viewEnd<=viewStart){ viewStart=0; viewEnd=totalDist; }
@@ -948,7 +924,6 @@ function draw(){
     if(!started){ ctx.moveTo(xx,yy); started=true; } else ctx.lineTo(xx,yy);
   }
   ctx.strokeStyle='#38bdf8'; ctx.lineWidth=2.2*devicePixelRatio; ctx.stroke();
-  drawForecast(x, padL, padT, padB, w, h);
   drawUserPoints(x, y, padT, padB, w, h);
   const m=route[markerIdx];
   if(m.dist>=viewStart && m.dist<=viewEnd){
@@ -956,46 +931,24 @@ function draw(){
     const mc = markerColor();
     ctx.strokeStyle=mc; ctx.lineWidth=2.2*devicePixelRatio; ctx.beginPath(); ctx.moveTo(mx,padT); ctx.lineTo(mx,h-padB); ctx.stroke();
     ctx.fillStyle=mc;
-drawSlopeLabelAtMarker(mx, my, padT, bottom);
-ctx.strokeStyle='#020617'; ctx.lineWidth=2*devicePixelRatio; ctx.stroke();
-
-    const slopeText = formatSlope(slopePercentAtIndex(markerIdx));
-    ctx.font='bold '+(18*devicePixelRatio)+'px system-ui';
-    ctx.textAlign='center';
-    ctx.textBaseline='middle';
-    const labelW = ctx.measureText(slopeText).width + 24*devicePixelRatio;
-    const labelH = 32*devicePixelRatio;
-  /* v58 forecast label edge correction */
-  const chartRightLimit = canvas.width - 18*devicePixelRatio;
-  const chartLeftLimit = 76*devicePixelRatio;
-  if (fx + labelW + 10*devicePixelRatio > chartRightLimit) {
-    lx = fx - labelW - 10*devicePixelRatio;
-  }
-  if (lx < chartLeftLimit) lx = chartLeftLimit;
-  if (lx + labelW > chartRightLimit) lx = chartRightLimit - labelW;
-  /* v58 forecast label at bottom */
-  ly = bottom - labelH - 8*devicePixelRatio;
-    let lx = clamp(mx - labelW/2, padL, w - padR - labelW);
-    let ly = my - 46*devicePixelRatio;
-    if(ly < padT + 4*devicePixelRatio) ly = my + 28*devicePixelRatio;
-    ctx.fillStyle='rgba(2, 6, 23, 0.88)';
-    ctx.strokeStyle=mc;
-    ctx.lineWidth=1.4*devicePixelRatio;
     ctx.beginPath();
-    ctx.roundRect(lx, ly, labelW, labelH, 9*devicePixelRatio);
+    ctx.arc(mx,my,8*devicePixelRatio,0,Math.PI*2);
     ctx.fill();
-    ctx.stroke();
-    ctx.fillStyle='#e5e7eb';
-    ctx.fillText(slopeText, lx + labelW/2, ly + labelH/2);
-    ctx.textAlign='start';
-    ctx.textBaseline='alphabetic';
+    ctx.strokeStyle='#020617'; ctx.lineWidth=2*devicePixelRatio; ctx.stroke();
+    drawSlopeLabelAtMarker(mx, my, padT, h-padB);
+
   }
+  drawForecast(x, padL, padT, padB, w, h);
   drawDistanceScale(padL, padR, padT, padB, w, h);
 
   // // drawSlopeLabelOverlay();
 
   // drawForwardSlopeFieldInDraw
   updateForwardSlope50Field();
+
+  updateSliderFromMarkerV54();
+
+  updatePositionSliderV54();
 }
 
 
@@ -1068,7 +1021,7 @@ function isForecastHandle(clientX, clientY){
   const h=forecastLabelHit;
   const labelHit=x>=h.lx && x<=h.lx+h.labelW && y>=h.ly && y<=h.ly+h.labelH;
   const lineHit=Math.abs(x-h.fx)<=34*devicePixelRatio && y>=h.padT && y<=h.bottom;
-  // v58 bottom forecast handle zone
+  // v54 bottom forecast handle zone
   const bottomZone = Math.abs(x-h.fx) <= 46*devicePixelRatio && y >= (h.bottom - 90*devicePixelRatio) && y <= h.bottom;
   return labelHit || lineHit || bottomZone;
 }
@@ -1225,11 +1178,12 @@ function drawForecast(x, padL, padT, padB, w, h){
 
   const text1 = 'Prognoza';
   const text2 = '↑ '+Math.round(fs.up)+' m   ↓ '+Math.round(fs.down)+' m';
-  const font1 = 18*devicePixelRatio;
+  const text3 = ((fs.endDist - fs.startDist) / 1000).toFixed(2) + ' km';
+  const font1 = 28*devicePixelRatio;
   const font2 = 18*devicePixelRatio;
-  ctx.font = '700 '+font2+'px system-ui';
-  const labelW = Math.max(ctx.measureText(text1).width, ctx.measureText(text2).width) + 22*devicePixelRatio;
-  const labelH = 58*devicePixelRatio;
+  ctx.font = '800 '+font1+'px system-ui';
+  const labelW = Math.max(ctx.measureText(text1).width, ctx.measureText(text2).width, ctx.measureText(text3).width) + 22*devicePixelRatio;
+  const labelH = 96*devicePixelRatio;
 
   let lx = fx - labelW/2;
   lx = clamp(lx, padL, w - 16*devicePixelRatio - labelW);
@@ -1253,12 +1207,14 @@ function drawForecast(x, padL, padT, padB, w, h){
 
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
-  ctx.font = '700 '+font1+'px system-ui';
+  ctx.font = '800 '+font1+'px system-ui';
   ctx.fillStyle = '#ddd6fe';
-  ctx.fillText(text1, lx + labelW/2, ly + 20*devicePixelRatio);
+  ctx.fillText(text1, lx + labelW/2, ly + 25*devicePixelRatio);
   ctx.font = '800 '+font2+'px system-ui';
   ctx.fillStyle = '#e5e7eb';
-  ctx.fillText(text2, lx + labelW/2, ly + 43*devicePixelRatio);
+  ctx.fillText(text2, lx + labelW/2, ly + 56*devicePixelRatio);
+  ctx.fillStyle = '#c4b5fd';
+  ctx.fillText(text3, lx + labelW/2, ly + 78*devicePixelRatio);
   forecastLabelHit = {lx, ly, labelW, labelH, fx, padT, bottom};
   ctx.restore();
 }
@@ -1266,12 +1222,18 @@ function drawForecast(x, padL, padT, padB, w, h){
 function drawUserPoints(x, y, padT, padB, w, h){
   const points = allVisiblePoints();
   if(!points.length) return;
+  const visiblePoints = points.filter(pt => pt.dist >= viewStart && pt.dist <= viewEnd);
+  if(!visiblePoints.length) return;
+
   ctx.save();
   ctx.textAlign='center';
   ctx.textBaseline='middle';
   ctx.font='bold '+(18*devicePixelRatio)+'px system-ui';
-  for(const pt of points){
-    if(pt.dist < viewStart || pt.dist > viewEnd) continue;
+  const placedLabels = [];
+  const labelTop = padT + 8*devicePixelRatio;
+  const labelGap = 6*devicePixelRatio;
+  const labelRows = 3;
+  for(const pt of visiblePoints){
     const ele = elevationAtDist(pt.dist);
     const xx = x({dist:pt.dist, ele:ele});
     const yy = y({dist:pt.dist, ele:ele});
@@ -1288,9 +1250,17 @@ function drawUserPoints(x, y, padT, padB, w, h){
     const text = String(pt.label || 'punkt');
     const labelW = Math.min(ctx.measureText(text).width + 24*devicePixelRatio, 260*devicePixelRatio);
     const labelH = 32*devicePixelRatio;
-    let lx = clamp(xx - labelW/2, 54*devicePixelRatio, w - 18*devicePixelRatio - labelW);
-    let ly = yy - 46*devicePixelRatio;
-    if(ly < padT + 4*devicePixelRatio) ly = yy + 28*devicePixelRatio;
+    let lx = clamp(xx - labelW/2, padLForFloatingLabels(), w - 18*devicePixelRatio - labelW);
+    let row = 0;
+    while(row < labelRows && placedLabels.some(r => r.row === row && lx < r.right + labelGap && lx + labelW > r.left - labelGap)){
+      row++;
+    }
+    if(row >= labelRows){
+      row = labelRows - 1;
+      lx = clamp(lx, padLForFloatingLabels(), w - 18*devicePixelRatio - labelW);
+    }
+    const ly = labelTop + row * (labelH + labelGap);
+    placedLabels.push({row, left:lx, right:lx+labelW});
     ctx.fillStyle='rgba(2, 6, 23, 0.90)';
     ctx.strokeStyle='#fbbf24';
     ctx.lineWidth=1*devicePixelRatio;
@@ -1307,6 +1277,10 @@ function drawUserPoints(x, y, padT, padB, w, h){
     ctx.restore();
   }
   ctx.restore();
+}
+
+function padLForFloatingLabels(){
+  return 54 * devicePixelRatio;
 }
 
 function drawDistanceScale(padL, padR, padT, padB, w, h){
@@ -1412,6 +1386,10 @@ function updateInfo(gpsD=null, acc=null){
     else statusEl.innerHTML='<span class="bad">GPS aktywny: jesteś ponad 500 m od śladu.</span>';
   }
   updateForwardSlope50Field();
+
+  updateSliderFromMarkerV54();
+
+  updatePositionSliderV54();
 }
 setInterval(()=>{
   if(route.length) updateInfo();
@@ -1427,8 +1405,14 @@ if(manualSpeedEl){
   });
 }
 
-sim.addEventListener('input', ()=>{ markerIdx=Math.round((route.length-1)*(sim.value/1000)); updateInfo(); autoScrollAfterMarkerHalf(); draw(); });
-document.getElementById('file').addEventListener('change', async e=>{
+const legacySim = document.getElementById('sim');
+if(legacySim){
+  legacySim.addEventListener('input', ()=>{ markerIdx=Math.round((route.length-1)*(legacySim.value/1000)); updateInfo(); autoScrollAfterMarkerHalf(); draw(); });
+}
+const fileInput = document.getElementById('file');
+if(fileInput && fileInput.dataset.boundGpxV54 !== "1"){
+fileInput.dataset.boundGpxV54 = "1";
+fileInput.addEventListener('change', async e=>{
   const f=e.target.files[0]; if(!f) return;
   try{
     const data=parseGpxData(await f.text());
@@ -1458,7 +1442,12 @@ document.getElementById('file').addEventListener('change', async e=>{
     statusEl.innerHTML='<span class="bad">Błąd wczytywania GPX: '+escapeHtml(err.message || String(err))+'</span>';
   }
 });
-document.getElementById('gpsBtn').addEventListener('click', ()=>{
+}
+const gpsButton = document.getElementById('gpsBtn');
+if(gpsButton && gpsButton.dataset.boundGpsV54 !== "1"){
+gpsButton.dataset.boundGpsV54 = "1";
+gpsButton.addEventListener('click', ()=>{
+  setGpsStatusV54('GPS: uruchamianie');
   if(watchId!=null){ navigator.geolocation.clearWatch(watchId); watchId=null; statusEl.textContent='GPS zatrzymany.'; return; }
   trackingInitialized=false;
   updateInfo();
@@ -1476,9 +1465,9 @@ document.getElementById('gpsBtn').addEventListener('click', ()=>{
   }, err=>{ statusEl.innerHTML='<span class="bad">Błąd GPS: '+err.message+'</span>'; },
   {enableHighAccuracy:true, maximumAge:1000, timeout:15000});
 });
-document.getElementById('centerBtn').addEventListener('click', ()=>{ centerViewOnMarker(); draw(); });
-const manualBtn = document.getElementById('manualPosBtn'); if(manualBtn) manualBtn.addEventListener('click', setManualPositionFromSlider);
+}
 document.getElementById('fitBtn').addEventListener('click', ()=>{ xZoom=1; yStretch=1; viewStart=0; viewEnd=totalDist; draw(); });
+document.getElementById('twoKmBtn').addEventListener('click', ()=>{ setForwardViewMeters(2000); });
 canvas.addEventListener('wheel', e=>{
   e.preventDefault();
   const d=distFromCanvasX(e.clientX);
@@ -1587,89 +1576,402 @@ setTimeout(bindYButtons, 0);
 setTimeout(bindYButtons, 500);
 
 
-function bindWptReaderV58(){
-  const f = document.getElementById("file") || document.querySelector('input[type="file"]');
-  if(!f || f.dataset.boundWptV58 === "1") return;
-  f.dataset.boundWptV58 = "1";
-
-  f.addEventListener("change", async e => {
-    const file = e.target.files && e.target.files[0];
-    if(!file) return;
-    try{
-      const txt = await file.text();
-      // Dajemy oryginalnemu parserowi GPX chwilę na ustawienie route.
-      setTimeout(() => {
-        try{
-          extractWptLabelsFromGpxTextV58(txt);
-          if(typeof draw === "function") draw();
-          const status = document.getElementById("status");
-          if(status && gpxWptLabelsV58.length){
-            status.textContent = status.textContent + " | WPT: " + gpxWptLabelsV58.length;
-          }
-        } catch(err){
-          const status = document.getElementById("status");
-          if(status) status.textContent = "Błąd WPT: " + err.message;
-        }
-      }, 250);
-    } catch(err){}
-  });
+function setGpsStatusV52(text){ const el=document.getElementById('status'); if(el) el.textContent=text; }
+// ===== v54: naprawa suwaka pozycji =====
+function getPositionSliderEl(){
+  return document.getElementById("positionSlider") || document.querySelector('input[type="range"]');
 }
 
-document.addEventListener("DOMContentLoaded", bindWptReaderV58);
-setTimeout(bindWptReaderV58, 0);
-setTimeout(bindWptReaderV58, 500);
+function setMarkerByKmV54(km){
+  if(!route || !route.length) return;
+  let targetDist = Number(km) * 1000;
+  if(!Number.isFinite(targetDist)) return;
+  targetDist = Math.max(0, Math.min(totalDist || targetDist, targetDist));
 
-
-
-function resetCzasuAplikacji() {
-  // v63: Reset = dawne Ustaw km + zerowanie czasu i prędkości aplikacji.
-  if(route.length && typeof setManualPositionFromSlider === 'function'){
-    setManualPositionFromSlider();
+  let best = 0;
+  let bestD = Math.abs(route[0].dist - targetDist);
+  for(let i=1; i<route.length; i++){
+    const d = Math.abs(route[i].dist - targetDist);
+    if(d < bestD){ bestD = d; best = i; }
   }
 
-  const now = Date.now();
+  markerIdx = best;
 
-  try {
-    const sig = (typeof currentRouteSignature === 'function') ? currentRouteSignature() : null;
-    speedHistory = {signature: sig, points: []};
-    if(route.length && route[markerIdx] && typeof recordSpeedPosition === 'function'){
-      recordSpeedPosition(route[markerIdx].dist, 'manual');
-    }
-    if(typeof saveSpeedHistory === 'function') saveSpeedHistory();
-  } catch(e) {}
+  // Synchronizacja zgrubnego kilometrażu z suwakiem.
+  if(typeof roughKm !== "undefined") roughKm = route[best].dist / 1000;
+  if(typeof currentGpxKm !== "undefined") currentGpxKm = route[best].dist / 1000;
+  if(typeof lastProjectedKm !== "undefined") lastProjectedKm = route[best].dist / 1000;
 
-  try { appSpeedKmh = 0; } catch(e) {}
-  try { calculatedSpeedKmh = 0; } catch(e) {}
-  try { appStartTimeMs = now; } catch(e) {}
-  try { routeStartTimeMs = now; } catch(e) {}
-  try { gpsTrackStartTimeMs = now; } catch(e) {}
-
-  if(Array.isArray(window.appGpsHistory)) window.appGpsHistory.length = 0;
-  if(Array.isArray(window.gpsHistory)) window.gpsHistory.length = 0;
-  if(Array.isArray(window.positionHistory)) window.positionHistory.length = 0;
-  if(Array.isArray(window.controlPoints)) window.controlPoints.length = 0;
-
-  if(typeof updateInfo === 'function') updateInfo();
-  if(typeof draw === 'function') draw();
-
-  const st = document.getElementById('status');
-  if(st) st.innerHTML = '<span class="accent">Reset: ustawiono pozycję z suwaka i wyzerowano czas/prędkość.</span>';
+  if(typeof keepMarkerVisible === "function") keepMarkerVisible();
+  if(typeof draw === "function") draw();
+  if(typeof updateInfo === "function") updateInfo();
 }
 
+function updateSliderFromMarkerV54(){
+  const s = getPositionSliderEl();
+  if(!s || !route || !route.length || markerIdx == null || !route[markerIdx]) return;
+  const total = Number.isFinite(totalDist) && totalDist > 0 ? totalDist : route[route.length-1].dist;
+  const value = total > 0 ? Math.round((route[markerIdx].dist / total) * 1000) : 0;
+  s.value = String(Math.max(0, Math.min(1000, value)));
+}
 
-// v63: bezpieczne bindowanie przycisku Reset
-function bindResetV63(){
-  const b = document.getElementById('btnResetCzasu');
-  if(!b || b.dataset.boundResetV63 === '1') return;
-  b.dataset.boundResetV63 = '1';
-  b.addEventListener('click', function(e){
-    e.preventDefault();
-    resetCzasuAplikacji();
+// ===== v54: suwak pozycji 0-1000 =====
+let suppressSliderUpdateV54 = false;
+
+function nearestRouteIndexByDistanceV54(distMeters){
+  if(!route || !route.length) return 0;
+  let lo = 0;
+  let hi = route.length - 1;
+
+  while(lo < hi){
+    const mid = Math.floor((lo + hi) / 2);
+    if(route[mid].dist < distMeters) lo = mid + 1;
+    else hi = mid;
+  }
+
+  if(lo > 0 && Math.abs(route[lo-1].dist - distMeters) < Math.abs(route[lo].dist - distMeters)){
+    return lo - 1;
+  }
+  return lo;
+}
+
+function setMarkerByDistanceV54(distMeters, source){
+  if(!route || !route.length) return;
+
+  const total = Number.isFinite(totalDist) && totalDist > 0 ? totalDist : route[route.length-1].dist;
+  const d = Math.max(0, Math.min(total, Number(distMeters) || 0));
+  const idx = nearestRouteIndexByDistanceV54(d);
+
+  markerIdx = idx;
+
+  // Synchronizacja zmiennych używanych przez różne wersje aplikacji.
+  try { currentGpxKm = route[idx].dist / 1000; } catch(e) {}
+  try { lastProjectedKm = route[idx].dist / 1000; } catch(e) {}
+  try { roughKm = route[idx].dist / 1000; } catch(e) {}
+
+  // Widok X: nie skaczemy agresywnie, tylko pilnujemy, żeby marker był widoczny.
+  if(typeof ensureMarkerVisible === "function") ensureMarkerVisible();
+  else if(typeof keepMarkerVisible === "function") keepMarkerVisible();
+  else {
+    const width = viewEnd - viewStart;
+    if(route[idx].dist < viewStart) {
+      viewStart = Math.max(0, route[idx].dist - width * 0.15);
+      viewEnd = viewStart + width;
+    } else if(route[idx].dist > viewEnd) {
+      viewEnd = Math.min(total, route[idx].dist + width * 0.15);
+      viewStart = viewEnd - width;
+    }
+  }
+
+  updatePositionSliderV54();
+  if(typeof updateInfo === "function") updateInfo();
+  if(typeof draw === "function") draw();
+}
+
+function updatePositionSliderV54(){
+  const s = document.getElementById("positionSlider");
+  if(!s || !route || !route.length || markerIdx == null || !route[markerIdx]) return;
+  const total = Number.isFinite(totalDist) && totalDist > 0 ? totalDist : route[route.length-1].dist;
+  const value = total > 0 ? Math.round((route[markerIdx].dist / total) * 1000) : 0;
+  suppressSliderUpdateV54 = true;
+  s.value = String(Math.max(0, Math.min(1000, value)));
+  suppressSliderUpdateV54 = false;
+}
+
+function bindPositionSliderV54(){
+  const s = document.getElementById("positionSlider");
+  if(!s || s.dataset.boundV54 === "1") return;
+  s.dataset.boundV54 = "1";
+  s.min = "0";
+  s.max = "1000";
+  s.step = "1";
+
+  const handler = function(){
+    if(suppressSliderUpdateV54) return;
+    if(!route || !route.length) return;
+    const total = Number.isFinite(totalDist) && totalDist > 0 ? totalDist : route[route.length-1].dist;
+    const frac = (Number(s.value) || 0) / 1000;
+    setMarkerByDistanceV54(frac * total, "slider");
+  };
+
+  s.addEventListener("input", handler);
+  s.addEventListener("change", handler);
+  s.addEventListener("pointerdown", e => e.stopPropagation());
+  s.addEventListener("touchstart", e => e.stopPropagation(), {passive:true});
+}
+
+document.addEventListener("DOMContentLoaded", bindPositionSliderV54);
+setTimeout(bindPositionSliderV54, 0);
+setTimeout(bindPositionSliderV54, 400);
+setInterval(bindPositionSliderV54, 1500);
+
+
+// ===== v54: stabilne uruchamianie GPS =====
+let gpsWatchIdV54 = null;
+
+function setGpsStatusV54(text){
+  const el = document.getElementById("status");
+  if(el) el.textContent = text;
+}
+
+function applyGpsPositionV54(pos){
+  if(!pos || !pos.coords) return;
+  const lat = pos.coords.latitude;
+  const lon = pos.coords.longitude;
+
+  if(!Number.isFinite(lat) || !Number.isFinite(lon)) return;
+
+  setGpsStatusV54("GPS: włączony");
+
+  // Użyj istniejącej logiki projektu, jeżeli działa.
+  if(typeof handleGpsPosition === "function"){
+    handleGpsPosition(pos);
+    return;
+  }
+  if(typeof handlePosition === "function"){
+    handlePosition(pos);
+    return;
+  }
+  if(typeof updateFromGps === "function"){
+    updateFromGps(lat, lon, pos.coords.accuracy);
+    return;
+  }
+
+  // Fallback: znajdź najbliższy punkt GPX po współrzędnych.
+  if(route && route.length){
+    let best = 0;
+    let bestD = Infinity;
+    for(let i=0; i<route.length; i++){
+      const p = route[i];
+      if(!Number.isFinite(p.lat) || !Number.isFinite(p.lon)) continue;
+      const dy = (p.lat - lat) * 111320;
+      const dx = (p.lon - lon) * 111320 * Math.cos(lat * Math.PI / 180);
+      const d2 = dx*dx + dy*dy;
+      if(d2 < bestD){ bestD = d2; best = i; }
+    }
+    markerIdx = best;
+    setMarkerByDistanceV54(route[best].dist, "gps");
+  }
+}
+
+function startGpsV54(){
+  if(!navigator.geolocation){
+    setGpsStatusV52("GPS: brak obsługi w przeglądarce");
+    return;
+  }
+
+  setGpsStatusV52("GPS: uruchamianie");
+
+  try{
+    if(gpsWatchIdV54 !== null){
+      navigator.geolocation.clearWatch(gpsWatchIdV54);
+      gpsWatchIdV54 = null;
+    }
+
+    gpsWatchIdV54 = navigator.geolocation.watchPosition(
+      applyGpsPositionV54,
+      err => {
+        setGpsStatusV52("GPS: błąd " + (err && err.message ? err.message : ""));
+      },
+      {enableHighAccuracy:true, maximumAge:5000, timeout:20000}
+    );
+
+    navigator.geolocation.getCurrentPosition(
+      applyGpsPositionV54,
+      err => {
+        setGpsStatusV52("GPS: błąd " + (err && err.message ? err.message : ""));
+      },
+      {enableHighAccuracy:true, maximumAge:5000, timeout:20000}
+    );
+  } catch(e){
+    setGpsStatusV52("GPS: błąd " + e.message);
+  }
+}
+
+function bindGpsButtonV54(){
+  const b = document.getElementById("gpsBtn");
+  if(b && b.dataset.boundGpsV54 !== "1"){
+    b.dataset.boundGpsV54 = "1";
+    b.addEventListener("click", startGpsV54);
+  }
+}
+document.addEventListener("DOMContentLoaded", bindGpsButtonV54);
+setTimeout(bindGpsButtonV54, 0);
+setTimeout(bindGpsButtonV54, 500);
+
+
+// ===== v54: stabilne wczytywanie GPX i waypointów =====
+function haversineMetersV54(lat1, lon1, lat2, lon2){
+  const R = 6371000;
+  const toRad = x => x * Math.PI / 180;
+  const dLat = toRad(lat2 - lat1);
+  const dLon = toRad(lon2 - lon1);
+  const a = Math.sin(dLat/2)**2 + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon/2)**2;
+  return 2 * R * Math.asin(Math.sqrt(a));
+}
+
+function cumulativeRouteV54(points){
+  let dist = 0;
+  for(let i=0; i<points.length; i++){
+    if(i > 0){
+      dist += haversineMetersV54(points[i-1].lat, points[i-1].lon, points[i].lat, points[i].lon);
+    }
+    points[i].dist = dist;
+  }
+  return dist;
+}
+
+function nearestRouteIndexToLatLonV54(lat, lon){
+  if(!route || !route.length) return 0;
+  let best = 0;
+  let bestD = Infinity;
+  for(let i=0; i<route.length; i++){
+    const p = route[i];
+    if(!Number.isFinite(p.lat) || !Number.isFinite(p.lon)) continue;
+    const d = haversineMetersV54(lat, lon, p.lat, p.lon);
+    if(d < bestD){
+      bestD = d;
+      best = i;
+    }
+  }
+  return best;
+}
+
+function nearestRouteIndexByDistV54(distMeters){
+  if(!route || !route.length) return 0;
+  let lo = 0;
+  let hi = route.length - 1;
+  while(lo < hi){
+    const mid = Math.floor((lo + hi) / 2);
+    if(route[mid].dist < distMeters) lo = mid + 1;
+    else hi = mid;
+  }
+  if(lo > 0 && Math.abs(route[lo-1].dist - distMeters) < Math.abs(route[lo].dist - distMeters)) return lo-1;
+  return lo;
+}
+
+function parseGpxTextV54(text){
+  const doc = new DOMParser().parseFromString(text, "application/xml");
+  const parserError = doc.querySelector("parsererror");
+  if(parserError) throw new Error("Nieprawidłowy format XML/GPX.");
+
+  const readPt = el => {
+    const lat = Number(el.getAttribute("lat"));
+    const lon = Number(el.getAttribute("lon"));
+    const eleEl = el.querySelector("ele");
+    const ele = eleEl ? Number(eleEl.textContent) : 0;
+    return {lat, lon, ele: Number.isFinite(ele) ? ele : 0, dist: 0};
+  };
+
+  let pts = Array.from(doc.querySelectorAll("trkpt")).map(readPt)
+    .filter(p => Number.isFinite(p.lat) && Number.isFinite(p.lon));
+
+  if(pts.length < 2){
+    pts = Array.from(doc.querySelectorAll("rtept")).map(readPt)
+      .filter(p => Number.isFinite(p.lat) && Number.isFinite(p.lon));
+  }
+
+  if(pts.length < 2){
+    throw new Error("W pliku GPX nie znaleziono śladu trasy trkpt ani rtept.");
+  }
+
+  const wpts = Array.from(doc.querySelectorAll("wpt")).map(w => {
+    const lat = Number(w.getAttribute("lat"));
+    const lon = Number(w.getAttribute("lon"));
+    const name = (w.querySelector("name")?.textContent || w.querySelector("cmt")?.textContent || w.querySelector("desc")?.textContent || "").trim();
+    return {lat, lon, name};
+  }).filter(p => Number.isFinite(p.lat) && Number.isFinite(p.lon) && p.name);
+
+  return {pts, wpts};
+}
+
+function applyRouteV54(points, waypoints, sourceName){
+  route = points;
+  totalDist = cumulativeRouteV54(route);
+
+  markerIdx = 0;
+  viewStart = 0;
+  viewEnd = totalDist;
+
+  if(typeof xZoom !== "undefined") xZoom = 1;
+  if(typeof yStretch !== "undefined") yStretch = 1;
+
+  const elevations = route.map(p => p.ele).filter(Number.isFinite);
+  if(elevations.length){
+    const minEle = Math.min(...elevations);
+    const maxEle = Math.max(...elevations);
+    const pad = Math.max(20, (maxEle - minEle) * 0.12);
+    baseYMin = minEle - pad;
+    baseYMax = maxEle + pad;
+  }
+
+  // Waypointy z GPX jako punkty opisowe na profilu.
+  const mapped = [];
+  for(const w of (waypoints || [])){
+    const idx = nearestRouteIndexToLatLonV54(w.lat, w.lon);
+    mapped.push({
+      name: w.name,
+      label: w.name,
+      dist: route[idx].dist,
+      ele: route[idx].ele,
+      lat: w.lat,
+      lon: w.lon
+    });
+  }
+
+  // Obsłuż różne nazwy zmiennych z poprzednich wersji.
+  try { gpxNotePoints = mapped; } catch(e) {}
+  try { userPoints = mapped; } catch(e) {}
+  try { routePoints = mapped; } catch(e) {}
+  window.gpxNotePoints = mapped;
+
+  const slider = document.getElementById("positionSlider") || document.querySelector('input[type="range"]');
+  if(slider){
+    slider.min = "0";
+    slider.max = "1000";
+    slider.step = "1";
+    slider.value = "0";
+  }
+
+  if(typeof bindPositionSliderV54 === "function") bindPositionSliderV54();
+  if(typeof bindPositionSliderV54 === "function") bindPositionSliderV54();
+  if(typeof updateInfo === "function") updateInfo();
+  if(typeof draw === "function") draw();
+
+  const status = document.getElementById("status");
+  if(status) status.textContent = "GPX wczytany: " + (sourceName || "plik") + " (" + (totalDist/1000).toFixed(2) + " km)";
+}
+
+async function handleGpxFileV54(file){
+  if(!file) return;
+  const text = await file.text();
+  const parsed = parseGpxTextV54(text);
+  applyRouteV54(parsed.pts, parsed.wpts, file.name);
+}
+
+function bindGpxInputV54(){
+  const inputs = Array.from(document.querySelectorAll('input[type="file"]'));
+  const gpxInput = inputs.find(i => (i.accept || "").toLowerCase().includes("gpx")) || inputs[0];
+
+  if(!gpxInput || gpxInput.dataset.boundGpxV54 === "1") return;
+  gpxInput.dataset.boundGpxV54 = "1";
+
+  gpxInput.addEventListener("change", async e => {
+    const file = e.target.files && e.target.files[0];
+    try{
+      await handleGpxFileV54(file);
+    } catch(err){
+      const status = document.getElementById("status");
+      if(status) status.textContent = "Błąd wczytywania GPX: " + err.message;
+      alert("Błąd wczytywania GPX: " + err.message);
+    }
   });
 }
-document.addEventListener('DOMContentLoaded', bindResetV63);
-setTimeout(bindResetV63, 0);
-setTimeout(bindResetV63, 500);
+
+document.addEventListener("DOMContentLoaded", bindGpxInputV54);
+setTimeout(bindGpxInputV54, 0);
+setTimeout(bindGpxInputV54, 500);
+setInterval(bindGpxInputV54, 2000);
 
 window.addEventListener('resize', resize);
 if('serviceWorker' in navigator){ navigator.serviceWorker.register('service-worker.js').catch(()=>{}); }
