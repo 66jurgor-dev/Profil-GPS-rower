@@ -38,7 +38,7 @@ canvas { width:100%; height:46vh; min-height:280px; display:block; background:#0
 
 .btn-blue { background:#2563eb; color:white; }
 
-/* ===== v50: większy interfejs terenowy ===== */
+/* ===== v52: większy interfejs terenowy ===== */
 button,
 .btn,
 input[type="button"],
@@ -84,7 +84,7 @@ select {
 }
 
 
-/* ===== v50: przyciski centralnie w dwóch rzędach ===== */
+/* ===== v52: przyciski centralnie w dwóch rzędach ===== */
 .controls, .button-row, .buttons, .actions, .toolbar, .bottom-buttons {
   display: flex !important;
   flex-wrap: wrap !important;
@@ -109,13 +109,13 @@ label[for="gpxFileInput"], label[for="gpxInput"], .gpx-button, .file-button, .fi
 }
 
 
-/* v50: Nachylenie 50 m jako normalny kafelek danych */
+/* v52: Nachylenie 50 m jako normalny kafelek danych */
 #slopeForward50Value {
   font-weight: 700 !important;
 }
 
 
-/* ===== v50: jednakowa szerokość przycisków ===== */
+/* ===== v52: jednakowa szerokość przycisków ===== */
 .controls button,
 .button-row button,
 .buttons button,
@@ -136,7 +136,7 @@ label:has(input[type="file"]) {
 }
 
 
-/* ===== v50: usunięcie tekstów pomocniczych ===== */
+/* ===== v52: usunięcie tekstów pomocniczych ===== */
 .hint,
 .help,
 .status-text,
@@ -145,6 +145,23 @@ label:has(input[type="file"]) {
 .note,
 .notes {
   display: none !important;
+}
+
+
+/* ===== v52: pasek statusu GPS ===== */
+#status.status-bar,
+#status {
+  display: block !important;
+  width: 100%;
+  box-sizing: border-box;
+  margin: 0 0 0.65rem 0;
+  padding: 0.45rem 0.65rem;
+  border: 1px solid rgba(148,163,184,0.25);
+  border-radius: 0.65rem;
+  background: rgba(15,23,42,0.92);
+  color: #cbd5e1;
+  font-size: 0.95rem;
+  line-height: 1.25;
 }
 
 </style>
@@ -156,7 +173,7 @@ label:has(input[type="file"]) {
 <main>
 <section class="panel">
   <canvas id="profile"></canvas>
-  <input id="sim" class="range" type="range" min="0" max="1000" value="0">
+  <input id="sim" class="range" type="range" id="positionSlider" min="0" max="1000" value="0">
 </section>
 <section class="panel info-panel">
 <div class="grid">
@@ -846,7 +863,7 @@ ctx.strokeStyle='#020617'; ctx.lineWidth=2*devicePixelRatio; ctx.stroke();
     ctx.textBaseline='middle';
     const labelW = ctx.measureText(slopeText).width + 24*devicePixelRatio;
     const labelH = 32*devicePixelRatio;
-  /* v50 forecast label edge correction */
+  /* v52 forecast label edge correction */
   const chartRightLimit = canvas.width - 18*devicePixelRatio;
   const chartLeftLimit = 76*devicePixelRatio;
   if (fx + labelW + 10*devicePixelRatio > chartRightLimit) {
@@ -854,7 +871,7 @@ ctx.strokeStyle='#020617'; ctx.lineWidth=2*devicePixelRatio; ctx.stroke();
   }
   if (lx < chartLeftLimit) lx = chartLeftLimit;
   if (lx + labelW > chartRightLimit) lx = chartRightLimit - labelW;
-  /* v50 forecast label at bottom */
+  /* v52 forecast label at bottom */
   ly = bottom - labelH - 8*devicePixelRatio;
     let lx = clamp(mx - labelW/2, padL, w - padR - labelW);
     let ly = my - 46*devicePixelRatio;
@@ -877,6 +894,8 @@ ctx.strokeStyle='#020617'; ctx.lineWidth=2*devicePixelRatio; ctx.stroke();
 
   // drawForwardSlopeFieldInDraw
   updateForwardSlope50Field();
+
+  updateSliderFromMarkerV52();
 }
 
 
@@ -949,7 +968,7 @@ function isForecastHandle(clientX, clientY){
   const h=forecastLabelHit;
   const labelHit=x>=h.lx && x<=h.lx+h.labelW && y>=h.ly && y<=h.ly+h.labelH;
   const lineHit=Math.abs(x-h.fx)<=34*devicePixelRatio && y>=h.padT && y<=h.bottom;
-  // v50 bottom forecast handle zone
+  // v52 bottom forecast handle zone
   const bottomZone = Math.abs(x-h.fx) <= 46*devicePixelRatio && y >= (h.bottom - 90*devicePixelRatio) && y <= h.bottom;
   return labelHit || lineHit || bottomZone;
 }
@@ -1293,6 +1312,8 @@ function updateInfo(gpsD=null, acc=null){
     else statusEl.innerHTML='<span class="bad">GPS aktywny: jesteś ponad 500 m od śladu.</span>';
   }
   updateForwardSlope50Field();
+
+  updateSliderFromMarkerV52();
 }
 setInterval(()=>{
   if(route.length) updateInfo();
@@ -1340,6 +1361,7 @@ document.getElementById('file').addEventListener('change', async e=>{
   }
 });
 document.getElementById('gpsBtn').addEventListener('click', ()=>{
+  setGpsStatusV52('GPS: uruchamianie');
   if(watchId!=null){ navigator.geolocation.clearWatch(watchId); watchId=null; statusEl.textContent='GPS zatrzymany.'; return; }
   trackingInitialized=false;
   updateInfo();
@@ -1467,6 +1489,74 @@ document.addEventListener("DOMContentLoaded", bindYButtons);
 setTimeout(bindYButtons, 0);
 setTimeout(bindYButtons, 500);
 
+
+function setGpsStatusV52(text){
+  const el = document.getElementById('status');
+  if(el) el.textContent = text;
+}
+
+
+// ===== v52: naprawa suwaka pozycji =====
+function getPositionSliderEl(){
+  return document.getElementById("positionSlider") || document.querySelector('input[type="range"]');
+}
+
+function setMarkerByKmV52(km){
+  if(!route || !route.length) return;
+  let targetDist = Number(km) * 1000;
+  if(!Number.isFinite(targetDist)) return;
+  targetDist = Math.max(0, Math.min(totalDist || targetDist, targetDist));
+
+  let best = 0;
+  let bestD = Math.abs(route[0].dist - targetDist);
+  for(let i=1; i<route.length; i++){
+    const d = Math.abs(route[i].dist - targetDist);
+    if(d < bestD){ bestD = d; best = i; }
+  }
+
+  markerIdx = best;
+
+  // Synchronizacja zgrubnego kilometrażu z suwakiem.
+  if(typeof roughKm !== "undefined") roughKm = route[best].dist / 1000;
+  if(typeof currentGpxKm !== "undefined") currentGpxKm = route[best].dist / 1000;
+  if(typeof lastProjectedKm !== "undefined") lastProjectedKm = route[best].dist / 1000;
+
+  if(typeof keepMarkerVisible === "function") keepMarkerVisible();
+  if(typeof draw === "function") draw();
+  if(typeof updateInfo === "function") updateInfo();
+}
+
+function updateSliderFromMarkerV52(){
+  const s = getPositionSliderEl();
+  if(!s || !route || !route.length || markerIdx == null || !route[markerIdx]) return;
+  const km = route[markerIdx].dist / 1000;
+  if(Number(s.max) < km) s.max = (totalDist / 1000).toFixed(3);
+  s.value = km;
+}
+
+function bindPositionSliderV52(){
+  const s = getPositionSliderEl();
+  if(!s || s.dataset.boundV52 === "1") return;
+  s.dataset.boundV52 = "1";
+  s.min = "0";
+  if(route && route.length && Number.isFinite(totalDist)) s.max = (totalDist / 1000).toFixed(3);
+  s.step = "0.01";
+
+  const handler = function(){
+    setMarkerByKmV52(s.value);
+  };
+
+  s.addEventListener("input", handler);
+  s.addEventListener("change", handler);
+  s.addEventListener("pointerdown", function(e){ e.stopPropagation(); });
+  s.addEventListener("touchstart", function(e){ e.stopPropagation(); }, {passive:true});
+}
+
+document.addEventListener("DOMContentLoaded", bindPositionSliderV52);
+setTimeout(bindPositionSliderV52, 0);
+setTimeout(bindPositionSliderV52, 500);
+setInterval(bindPositionSliderV52, 1500);
+
 window.addEventListener('resize', resize);
 if('serviceWorker' in navigator){ navigator.serviceWorker.register('service-worker.js').catch(()=>{}); }
 function initializeApp(){
@@ -1481,6 +1571,6 @@ function initializeApp(){
 }
 initializeApp();
 </script>
-<div id="status" style="display:none"></div>
+<div id="status"></div>
 </body>
 </html>
