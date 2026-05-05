@@ -38,7 +38,7 @@ canvas { width:100%; height:46vh; min-height:280px; display:block; background:#0
 
 .btn-blue { background:#2563eb; color:white; }
 
-/* ===== v49: większy interfejs terenowy ===== */
+/* ===== v51: większy interfejs terenowy ===== */
 button,
 .btn,
 input[type="button"],
@@ -84,7 +84,7 @@ select {
 }
 
 
-/* ===== v49: przyciski centralnie w dwóch rzędach ===== */
+/* ===== v51: przyciski centralnie w dwóch rzędach ===== */
 .controls, .button-row, .buttons, .actions, .toolbar, .bottom-buttons {
   display: flex !important;
   flex-wrap: wrap !important;
@@ -109,13 +109,13 @@ label[for="gpxFileInput"], label[for="gpxInput"], .gpx-button, .file-button, .fi
 }
 
 
-/* v49: Nachylenie 50 m jako normalny kafelek danych */
+/* v51: Nachylenie 50 m jako normalny kafelek danych */
 #slopeForward50Value {
   font-weight: 700 !important;
 }
 
 
-/* ===== v49: jednakowa szerokość przycisków ===== */
+/* ===== v51: jednakowa szerokość przycisków ===== */
 .controls button,
 .button-row button,
 .buttons button,
@@ -135,6 +135,24 @@ label:has(input[type="file"]) {
   text-align: center !important;
 }
 
+
+/* ===== v51: usunięcie tekstów pomocniczych ===== */
+.hint,
+.help,
+.status-text,
+.instruction,
+.instructions,
+.note,
+.notes {
+  display: none !important;
+}
+
+
+/* ===== v51: ukrycie pozostałego komunikatu GPX ===== */
+#status {
+  display: none !important;
+}
+
 </style>
 </head>
 <body>
@@ -147,8 +165,7 @@ label:has(input[type="file"]) {
   <input id="sim" class="range" type="range" min="0" max="1000" value="0">
 </section>
 <section class="panel info-panel">
-  <p id="status" class="status">Wczytaj plik GPX albo użyj trasy wbudowanej do testu interfejsu.</p>
-  <div class="grid">
+<div class="grid">
     <div class="tile">Dystans<b id="roughKm">-</b></div>
     <div class="tile">Pozostało<b id="left">-</b></div>
     <div class="tile">Wysokość z GPX<b id="ele">-</b></div>
@@ -835,7 +852,7 @@ ctx.strokeStyle='#020617'; ctx.lineWidth=2*devicePixelRatio; ctx.stroke();
     ctx.textBaseline='middle';
     const labelW = ctx.measureText(slopeText).width + 24*devicePixelRatio;
     const labelH = 32*devicePixelRatio;
-  /* v49 forecast label edge correction */
+  /* v51 forecast label edge correction */
   const chartRightLimit = canvas.width - 18*devicePixelRatio;
   const chartLeftLimit = 76*devicePixelRatio;
   if (fx + labelW + 10*devicePixelRatio > chartRightLimit) {
@@ -843,7 +860,7 @@ ctx.strokeStyle='#020617'; ctx.lineWidth=2*devicePixelRatio; ctx.stroke();
   }
   if (lx < chartLeftLimit) lx = chartLeftLimit;
   if (lx + labelW > chartRightLimit) lx = chartRightLimit - labelW;
-  /* v49 forecast label at bottom */
+  /* v51 forecast label at bottom */
   ly = bottom - labelH - 8*devicePixelRatio;
     let lx = clamp(mx - labelW/2, padL, w - padR - labelW);
     let ly = my - 46*devicePixelRatio;
@@ -938,7 +955,7 @@ function isForecastHandle(clientX, clientY){
   const h=forecastLabelHit;
   const labelHit=x>=h.lx && x<=h.lx+h.labelW && y>=h.ly && y<=h.ly+h.labelH;
   const lineHit=Math.abs(x-h.fx)<=34*devicePixelRatio && y>=h.padT && y<=h.bottom;
-  // v49 bottom forecast handle zone
+  // v51 bottom forecast handle zone
   const bottomZone = Math.abs(x-h.fx) <= 46*devicePixelRatio && y >= (h.bottom - 90*devicePixelRatio) && y <= h.bottom;
   return labelHit || lineHit || bottomZone;
 }
@@ -1470,5 +1487,6 @@ function initializeApp(){
 }
 initializeApp();
 </script>
+<div id="status" style="display:none" style="display:none"></div>
 </body>
 </html>
