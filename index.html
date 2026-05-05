@@ -38,7 +38,7 @@ canvas { width:100%; height:46vh; min-height:280px; display:block; background:#0
 
 .btn-blue { background:#2563eb; color:white; }
 
-/* ===== v53: większy interfejs terenowy ===== */
+/* ===== v54: większy interfejs terenowy ===== */
 button,
 .btn,
 input[type="button"],
@@ -84,7 +84,7 @@ select {
 }
 
 
-/* ===== v53: przyciski centralnie w dwóch rzędach ===== */
+/* ===== v54: przyciski centralnie w dwóch rzędach ===== */
 .controls, .button-row, .buttons, .actions, .toolbar, .bottom-buttons {
   display: flex !important;
   flex-wrap: wrap !important;
@@ -109,13 +109,13 @@ label[for="gpxFileInput"], label[for="gpxInput"], .gpx-button, .file-button, .fi
 }
 
 
-/* v53: Nachylenie 50 m jako normalny kafelek danych */
+/* v54: Nachylenie 50 m jako normalny kafelek danych */
 #slopeForward50Value {
   font-weight: 700 !important;
 }
 
 
-/* ===== v53: jednakowa szerokość przycisków ===== */
+/* ===== v54: jednakowa szerokość przycisków ===== */
 .controls button,
 .button-row button,
 .buttons button,
@@ -136,7 +136,7 @@ label:has(input[type="file"]) {
 }
 
 
-/* ===== v53: usunięcie tekstów pomocniczych ===== */
+/* ===== v54: usunięcie tekstów pomocniczych ===== */
 .hint,
 .help,
 .status-text,
@@ -148,7 +148,7 @@ label:has(input[type="file"]) {
 }
 
 
-/* ===== v53: pasek statusu GPS ===== */
+/* ===== v54: pasek statusu GPS ===== */
 #status.status-bar,
 #status {
   display: block !important;
@@ -189,7 +189,7 @@ label:has(input[type="file"]) {
   </div>
 <div class="controls">
 <label class="file blue">Wczytaj GPX<input id="file" type="file" accept=".gpx,application/gpx+xml,text/xml"></label>
-    <button id="gpsBtn" onclick="startGpsV53()" class="blue">Start GPS</button>
+    <button id="gpsBtn" onclick="startGpsV54()" class="blue">Start GPS</button>
     <button id="fitBtn" class="green">Pokaż całość</button>
       <button id="yUpBtn" onclick="yUp()" class="green">Y UP</button>
       <button id="yDownBtn" onclick="yDown()" class="green">Y DOWN</button>
@@ -493,9 +493,9 @@ function parseGpxData(text){
   })).filter(p => Number.isFinite(p.lat) && Number.isFinite(p.lon) && p.label);
   return {routePoints, notePoints};
 
-  bindPositionSliderV53();
+  bindPositionSliderV54();
 
-  updatePositionSliderV53();
+  updatePositionSliderV54();
 }
 function nearestGlobal(lat, lon){
   const p={lat, lon};
@@ -867,7 +867,7 @@ ctx.strokeStyle='#020617'; ctx.lineWidth=2*devicePixelRatio; ctx.stroke();
     ctx.textBaseline='middle';
     const labelW = ctx.measureText(slopeText).width + 24*devicePixelRatio;
     const labelH = 32*devicePixelRatio;
-  /* v53 forecast label edge correction */
+  /* v54 forecast label edge correction */
   const chartRightLimit = canvas.width - 18*devicePixelRatio;
   const chartLeftLimit = 76*devicePixelRatio;
   if (fx + labelW + 10*devicePixelRatio > chartRightLimit) {
@@ -875,7 +875,7 @@ ctx.strokeStyle='#020617'; ctx.lineWidth=2*devicePixelRatio; ctx.stroke();
   }
   if (lx < chartLeftLimit) lx = chartLeftLimit;
   if (lx + labelW > chartRightLimit) lx = chartRightLimit - labelW;
-  /* v53 forecast label at bottom */
+  /* v54 forecast label at bottom */
   ly = bottom - labelH - 8*devicePixelRatio;
     let lx = clamp(mx - labelW/2, padL, w - padR - labelW);
     let ly = my - 46*devicePixelRatio;
@@ -899,9 +899,9 @@ ctx.strokeStyle='#020617'; ctx.lineWidth=2*devicePixelRatio; ctx.stroke();
   // drawForwardSlopeFieldInDraw
   updateForwardSlope50Field();
 
-  updateSliderFromMarkerV53();
+  updateSliderFromMarkerV54();
 
-  updatePositionSliderV53();
+  updatePositionSliderV54();
 }
 
 
@@ -974,7 +974,7 @@ function isForecastHandle(clientX, clientY){
   const h=forecastLabelHit;
   const labelHit=x>=h.lx && x<=h.lx+h.labelW && y>=h.ly && y<=h.ly+h.labelH;
   const lineHit=Math.abs(x-h.fx)<=34*devicePixelRatio && y>=h.padT && y<=h.bottom;
-  // v53 bottom forecast handle zone
+  // v54 bottom forecast handle zone
   const bottomZone = Math.abs(x-h.fx) <= 46*devicePixelRatio && y >= (h.bottom - 90*devicePixelRatio) && y <= h.bottom;
   return labelHit || lineHit || bottomZone;
 }
@@ -1319,9 +1319,9 @@ function updateInfo(gpsD=null, acc=null){
   }
   updateForwardSlope50Field();
 
-  updateSliderFromMarkerV53();
+  updateSliderFromMarkerV54();
 
-  updatePositionSliderV53();
+  updatePositionSliderV54();
 }
 setInterval(()=>{
   if(route.length) updateInfo();
@@ -1369,7 +1369,7 @@ document.getElementById('file').addEventListener('change', async e=>{
   }
 });
 document.getElementById('gpsBtn').addEventListener('click', ()=>{
-  setGpsStatusV53('GPS: uruchamianie');
+  setGpsStatusV54('GPS: uruchamianie');
   if(watchId!=null){ navigator.geolocation.clearWatch(watchId); watchId=null; statusEl.textContent='GPS zatrzymany.'; return; }
   trackingInitialized=false;
   updateInfo();
@@ -1499,18 +1499,18 @@ setTimeout(bindYButtons, 500);
 
 
 function setGpsStatusV52(text){ const el=document.getElementById('status'); if(el) el.textContent=text; }
-function setGpsStatusV53(text){
+function setGpsStatusV54(text){
   const el = document.getElementById('status');
   if(el) el.textContent = text;
 }
 
 
-// ===== v53: naprawa suwaka pozycji =====
+// ===== v54: naprawa suwaka pozycji =====
 function getPositionSliderEl(){
   return document.getElementById("positionSlider") || document.querySelector('input[type="range"]');
 }
 
-function setMarkerByKmV53(km){
+function setMarkerByKmV54(km){
   if(!route || !route.length) return;
   let targetDist = Number(km) * 1000;
   if(!Number.isFinite(targetDist)) return;
@@ -1535,7 +1535,7 @@ function setMarkerByKmV53(km){
   if(typeof updateInfo === "function") updateInfo();
 }
 
-function updateSliderFromMarkerV53(){
+function updateSliderFromMarkerV54(){
   const s = getPositionSliderEl();
   if(!s || !route || !route.length || markerIdx == null || !route[markerIdx]) return;
   const km = route[markerIdx].dist / 1000;
@@ -1543,16 +1543,16 @@ function updateSliderFromMarkerV53(){
   s.value = km;
 }
 
-function bindPositionSliderV53(){
+function bindPositionSliderV54(){
   const s = getPositionSliderEl();
-  if(!s || s.dataset.boundV53 === "1") return;
-  s.dataset.boundV53 = "1";
+  if(!s || s.dataset.boundV54 === "1") return;
+  s.dataset.boundV54 = "1";
   s.min = "0";
   if(route && route.length && Number.isFinite(totalDist)) s.max = (totalDist / 1000).toFixed(3);
   s.step = "0.01";
 
   const handler = function(){
-    setMarkerByKmV53(s.value);
+    setMarkerByKmV54(s.value);
   };
 
   s.addEventListener("input", handler);
@@ -1561,16 +1561,16 @@ function bindPositionSliderV53(){
   s.addEventListener("touchstart", function(e){ e.stopPropagation(); }, {passive:true});
 }
 
-document.addEventListener("DOMContentLoaded", bindPositionSliderV53);
-setTimeout(bindPositionSliderV53, 0);
-setTimeout(bindPositionSliderV53, 500);
-setInterval(bindPositionSliderV53, 1500);
+document.addEventListener("DOMContentLoaded", bindPositionSliderV54);
+setTimeout(bindPositionSliderV54, 0);
+setTimeout(bindPositionSliderV54, 500);
+setInterval(bindPositionSliderV54, 1500);
 
 
-// ===== v53: suwak pozycji 0-1000 =====
-let suppressSliderUpdateV53 = false;
+// ===== v54: suwak pozycji 0-1000 =====
+let suppressSliderUpdateV54 = false;
 
-function nearestRouteIndexByDistanceV53(distMeters){
+function nearestRouteIndexByDistanceV54(distMeters){
   if(!route || !route.length) return 0;
   let lo = 0;
   let hi = route.length - 1;
@@ -1587,12 +1587,12 @@ function nearestRouteIndexByDistanceV53(distMeters){
   return lo;
 }
 
-function setMarkerByDistanceV53(distMeters, source){
+function setMarkerByDistanceV54(distMeters, source){
   if(!route || !route.length) return;
 
   const total = Number.isFinite(totalDist) && totalDist > 0 ? totalDist : route[route.length-1].dist;
   const d = Math.max(0, Math.min(total, Number(distMeters) || 0));
-  const idx = nearestRouteIndexByDistanceV53(d);
+  const idx = nearestRouteIndexByDistanceV54(d);
 
   markerIdx = idx;
 
@@ -1615,35 +1615,35 @@ function setMarkerByDistanceV53(distMeters, source){
     }
   }
 
-  updatePositionSliderV53();
+  updatePositionSliderV54();
   if(typeof updateInfo === "function") updateInfo();
   if(typeof draw === "function") draw();
 }
 
-function updatePositionSliderV53(){
+function updatePositionSliderV54(){
   const s = document.getElementById("positionSlider");
   if(!s || !route || !route.length || markerIdx == null || !route[markerIdx]) return;
   const total = Number.isFinite(totalDist) && totalDist > 0 ? totalDist : route[route.length-1].dist;
   const value = total > 0 ? Math.round((route[markerIdx].dist / total) * 1000) : 0;
-  suppressSliderUpdateV53 = true;
+  suppressSliderUpdateV54 = true;
   s.value = String(Math.max(0, Math.min(1000, value)));
-  suppressSliderUpdateV53 = false;
+  suppressSliderUpdateV54 = false;
 }
 
-function bindPositionSliderV53(){
+function bindPositionSliderV54(){
   const s = document.getElementById("positionSlider");
-  if(!s || s.dataset.boundV53 === "1") return;
-  s.dataset.boundV53 = "1";
+  if(!s || s.dataset.boundV54 === "1") return;
+  s.dataset.boundV54 = "1";
   s.min = "0";
   s.max = "1000";
   s.step = "1";
 
   const handler = function(){
-    if(suppressSliderUpdateV53) return;
+    if(suppressSliderUpdateV54) return;
     if(!route || !route.length) return;
     const total = Number.isFinite(totalDist) && totalDist > 0 ? totalDist : route[route.length-1].dist;
     const frac = (Number(s.value) || 0) / 1000;
-    setMarkerByDistanceV53(frac * total, "slider");
+    setMarkerByDistanceV54(frac * total, "slider");
   };
 
   s.addEventListener("input", handler);
@@ -1652,28 +1652,28 @@ function bindPositionSliderV53(){
   s.addEventListener("touchstart", e => e.stopPropagation(), {passive:true});
 }
 
-document.addEventListener("DOMContentLoaded", bindPositionSliderV53);
-setTimeout(bindPositionSliderV53, 0);
-setTimeout(bindPositionSliderV53, 400);
-setInterval(bindPositionSliderV53, 1500);
+document.addEventListener("DOMContentLoaded", bindPositionSliderV54);
+setTimeout(bindPositionSliderV54, 0);
+setTimeout(bindPositionSliderV54, 400);
+setInterval(bindPositionSliderV54, 1500);
 
 
-// ===== v53: stabilne uruchamianie GPS =====
-let gpsWatchIdV53 = null;
+// ===== v54: stabilne uruchamianie GPS =====
+let gpsWatchIdV54 = null;
 
-function setGpsStatusV53(text){
+function setGpsStatusV54(text){
   const el = document.getElementById("status");
   if(el) el.textContent = text;
 }
 
-function applyGpsPositionV53(pos){
+function applyGpsPositionV54(pos){
   if(!pos || !pos.coords) return;
   const lat = pos.coords.latitude;
   const lon = pos.coords.longitude;
 
   if(!Number.isFinite(lat) || !Number.isFinite(lon)) return;
 
-  setGpsStatusV53("GPS: włączony");
+  setGpsStatusV54("GPS: włączony");
 
   // Użyj istniejącej logiki projektu, jeżeli działa.
   if(typeof handleGpsPosition === "function"){
@@ -1702,11 +1702,11 @@ function applyGpsPositionV53(pos){
       if(d2 < bestD){ bestD = d2; best = i; }
     }
     markerIdx = best;
-    setMarkerByDistanceV53(route[best].dist, "gps");
+    setMarkerByDistanceV54(route[best].dist, "gps");
   }
 }
 
-function startGpsV53(){
+function startGpsV54(){
   if(!navigator.geolocation){
     setGpsStatusV52("GPS: brak obsługi w przeglądarce");
     return;
@@ -1715,13 +1715,13 @@ function startGpsV53(){
   setGpsStatusV52("GPS: uruchamianie");
 
   try{
-    if(gpsWatchIdV53 !== null){
-      navigator.geolocation.clearWatch(gpsWatchIdV53);
-      gpsWatchIdV53 = null;
+    if(gpsWatchIdV54 !== null){
+      navigator.geolocation.clearWatch(gpsWatchIdV54);
+      gpsWatchIdV54 = null;
     }
 
-    gpsWatchIdV53 = navigator.geolocation.watchPosition(
-      applyGpsPositionV53,
+    gpsWatchIdV54 = navigator.geolocation.watchPosition(
+      applyGpsPositionV54,
       err => {
         setGpsStatusV52("GPS: błąd " + (err && err.message ? err.message : ""));
       },
@@ -1729,7 +1729,7 @@ function startGpsV53(){
     );
 
     navigator.geolocation.getCurrentPosition(
-      applyGpsPositionV53,
+      applyGpsPositionV54,
       err => {
         setGpsStatusV52("GPS: błąd " + (err && err.message ? err.message : ""));
       },
@@ -1740,16 +1740,190 @@ function startGpsV53(){
   }
 }
 
-function bindGpsButtonV53(){
+function bindGpsButtonV54(){
   const b = document.getElementById("gpsBtn");
-  if(b && b.dataset.boundGpsV53 !== "1"){
-    b.dataset.boundGpsV53 = "1";
-    b.addEventListener("click", startGpsV53);
+  if(b && b.dataset.boundGpsV54 !== "1"){
+    b.dataset.boundGpsV54 = "1";
+    b.addEventListener("click", startGpsV54);
   }
 }
-document.addEventListener("DOMContentLoaded", bindGpsButtonV53);
-setTimeout(bindGpsButtonV53, 0);
-setTimeout(bindGpsButtonV53, 500);
+document.addEventListener("DOMContentLoaded", bindGpsButtonV54);
+setTimeout(bindGpsButtonV54, 0);
+setTimeout(bindGpsButtonV54, 500);
+
+
+// ===== v54: stabilne wczytywanie GPX i waypointów =====
+function haversineMetersV54(lat1, lon1, lat2, lon2){
+  const R = 6371000;
+  const toRad = x => x * Math.PI / 180;
+  const dLat = toRad(lat2 - lat1);
+  const dLon = toRad(lon2 - lon1);
+  const a = Math.sin(dLat/2)**2 + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon/2)**2;
+  return 2 * R * Math.asin(Math.sqrt(a));
+}
+
+function cumulativeRouteV54(points){
+  let dist = 0;
+  for(let i=0; i<points.length; i++){
+    if(i > 0){
+      dist += haversineMetersV54(points[i-1].lat, points[i-1].lon, points[i].lat, points[i].lon);
+    }
+    points[i].dist = dist;
+  }
+  return dist;
+}
+
+function nearestRouteIndexToLatLonV54(lat, lon){
+  if(!route || !route.length) return 0;
+  let best = 0;
+  let bestD = Infinity;
+  for(let i=0; i<route.length; i++){
+    const p = route[i];
+    if(!Number.isFinite(p.lat) || !Number.isFinite(p.lon)) continue;
+    const d = haversineMetersV54(lat, lon, p.lat, p.lon);
+    if(d < bestD){
+      bestD = d;
+      best = i;
+    }
+  }
+  return best;
+}
+
+function nearestRouteIndexByDistV54(distMeters){
+  if(!route || !route.length) return 0;
+  let lo = 0;
+  let hi = route.length - 1;
+  while(lo < hi){
+    const mid = Math.floor((lo + hi) / 2);
+    if(route[mid].dist < distMeters) lo = mid + 1;
+    else hi = mid;
+  }
+  if(lo > 0 && Math.abs(route[lo-1].dist - distMeters) < Math.abs(route[lo].dist - distMeters)) return lo-1;
+  return lo;
+}
+
+function parseGpxTextV54(text){
+  const doc = new DOMParser().parseFromString(text, "application/xml");
+  const parserError = doc.querySelector("parsererror");
+  if(parserError) throw new Error("Nieprawidłowy format XML/GPX.");
+
+  const readPt = el => {
+    const lat = Number(el.getAttribute("lat"));
+    const lon = Number(el.getAttribute("lon"));
+    const eleEl = el.querySelector("ele");
+    const ele = eleEl ? Number(eleEl.textContent) : 0;
+    return {lat, lon, ele: Number.isFinite(ele) ? ele : 0, dist: 0};
+  };
+
+  let pts = Array.from(doc.querySelectorAll("trkpt")).map(readPt)
+    .filter(p => Number.isFinite(p.lat) && Number.isFinite(p.lon));
+
+  if(pts.length < 2){
+    pts = Array.from(doc.querySelectorAll("rtept")).map(readPt)
+      .filter(p => Number.isFinite(p.lat) && Number.isFinite(p.lon));
+  }
+
+  if(pts.length < 2){
+    throw new Error("W pliku GPX nie znaleziono śladu trasy trkpt ani rtept.");
+  }
+
+  const wpts = Array.from(doc.querySelectorAll("wpt")).map(w => {
+    const lat = Number(w.getAttribute("lat"));
+    const lon = Number(w.getAttribute("lon"));
+    const name = (w.querySelector("name")?.textContent || w.querySelector("cmt")?.textContent || w.querySelector("desc")?.textContent || "").trim();
+    return {lat, lon, name};
+  }).filter(p => Number.isFinite(p.lat) && Number.isFinite(p.lon) && p.name);
+
+  return {pts, wpts};
+}
+
+function applyRouteV54(points, waypoints, sourceName){
+  route = points;
+  totalDist = cumulativeRouteV54(route);
+
+  markerIdx = 0;
+  viewStart = 0;
+  viewEnd = totalDist;
+
+  if(typeof xZoom !== "undefined") xZoom = 1;
+  if(typeof yStretch !== "undefined") yStretch = 1;
+
+  const elevations = route.map(p => p.ele).filter(Number.isFinite);
+  if(elevations.length){
+    const minEle = Math.min(...elevations);
+    const maxEle = Math.max(...elevations);
+    const pad = Math.max(20, (maxEle - minEle) * 0.12);
+    baseYMin = minEle - pad;
+    baseYMax = maxEle + pad;
+  }
+
+  // Waypointy z GPX jako punkty opisowe na profilu.
+  const mapped = [];
+  for(const w of (waypoints || [])){
+    const idx = nearestRouteIndexToLatLonV54(w.lat, w.lon);
+    mapped.push({
+      name: w.name,
+      label: w.name,
+      dist: route[idx].dist,
+      ele: route[idx].ele,
+      lat: w.lat,
+      lon: w.lon
+    });
+  }
+
+  // Obsłuż różne nazwy zmiennych z poprzednich wersji.
+  try { gpxNotePoints = mapped; } catch(e) {}
+  try { userPoints = mapped; } catch(e) {}
+  try { routePoints = mapped; } catch(e) {}
+  window.gpxNotePoints = mapped;
+
+  const slider = document.getElementById("positionSlider") || document.querySelector('input[type="range"]');
+  if(slider){
+    slider.min = "0";
+    slider.max = "1000";
+    slider.step = "1";
+    slider.value = "0";
+  }
+
+  if(typeof bindPositionSliderV54 === "function") bindPositionSliderV54();
+  if(typeof bindPositionSliderV54 === "function") bindPositionSliderV54();
+  if(typeof updateInfo === "function") updateInfo();
+  if(typeof draw === "function") draw();
+
+  const status = document.getElementById("status");
+  if(status) status.textContent = "GPX wczytany: " + (sourceName || "plik") + " (" + (totalDist/1000).toFixed(2) + " km)";
+}
+
+async function handleGpxFileV54(file){
+  if(!file) return;
+  const text = await file.text();
+  const parsed = parseGpxTextV54(text);
+  applyRouteV54(parsed.pts, parsed.wpts, file.name);
+}
+
+function bindGpxInputV54(){
+  const inputs = Array.from(document.querySelectorAll('input[type="file"]'));
+  const gpxInput = inputs.find(i => (i.accept || "").toLowerCase().includes("gpx")) || inputs[0];
+
+  if(!gpxInput || gpxInput.dataset.boundGpxV54 === "1") return;
+  gpxInput.dataset.boundGpxV54 = "1";
+
+  gpxInput.addEventListener("change", async e => {
+    const file = e.target.files && e.target.files[0];
+    try{
+      await handleGpxFileV54(file);
+    } catch(err){
+      const status = document.getElementById("status");
+      if(status) status.textContent = "Błąd wczytywania GPX: " + err.message;
+      alert("Błąd wczytywania GPX: " + err.message);
+    }
+  });
+}
+
+document.addEventListener("DOMContentLoaded", bindGpxInputV54);
+setTimeout(bindGpxInputV54, 0);
+setTimeout(bindGpxInputV54, 500);
+setInterval(bindGpxInputV54, 2000);
 
 window.addEventListener('resize', resize);
 if('serviceWorker' in navigator){ navigator.serviceWorker.register('service-worker.js').catch(()=>{}); }
