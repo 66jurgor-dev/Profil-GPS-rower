@@ -38,7 +38,7 @@ canvas { width:100%; height:46vh; min-height:280px; display:block; background:#0
 
 .btn-blue { background:#2563eb; color:white; }
 
-/* ===== v57: większy interfejs terenowy ===== */
+/* ===== v58: większy interfejs terenowy ===== */
 button,
 .btn,
 input[type="button"],
@@ -84,7 +84,7 @@ select {
 }
 
 
-/* ===== v57: przyciski centralnie w dwóch rzędach ===== */
+/* ===== v58: przyciski centralnie w dwóch rzędach ===== */
 .controls, .button-row, .buttons, .actions, .toolbar, .bottom-buttons {
   display: flex !important;
   flex-wrap: wrap !important;
@@ -109,13 +109,13 @@ label[for="gpxFileInput"], label[for="gpxInput"], .gpx-button, .file-button, .fi
 }
 
 
-/* v57: Nachylenie 50 m jako normalny kafelek danych */
+/* v58: Nachylenie 50 m jako normalny kafelek danych */
 #slopeForward50Value {
   font-weight: 700 !important;
 }
 
 
-/* ===== v57: jednakowa szerokość przycisków ===== */
+/* ===== v58: jednakowa szerokość przycisków ===== */
 .controls button,
 .button-row button,
 .buttons button,
@@ -136,7 +136,7 @@ label:has(input[type="file"]) {
 }
 
 
-/* ===== v57: kompaktowy pasek statusu ===== */
+/* ===== v58: kompaktowy pasek statusu ===== */
 #status.status-bar,
 #status {
   display: block !important;
@@ -801,6 +801,112 @@ function resize(){
 }
 
 
+
+// ===== v58: ostrożne odczytywanie waypointów WPT z GPX =====
+let gpxWptLabelsV58 = [];
+
+function nearestRouteIndexToLatLonWptV58(lat, lon){
+  if(!route || !route.length) return 0;
+  let best = 0;
+  let bestD = Infinity;
+  for(let i=0; i<route.length; i++){
+    const p = route[i];
+    if(!Number.isFinite(p.lat) || !Number.isFinite(p.lon)) continue;
+    const dy = (p.lat - lat) * 111320;
+    const dx = (p.lon - lon) * 111320 * Math.cos(lat * Math.PI / 180);
+    const d2 = dx*dx + dy*dy;
+    if(d2 < bestD){
+      bestD = d2;
+      best = i;
+    }
+  }
+  return best;
+}
+
+function extractWptLabelsFromGpxTextV58(gpxText){
+  gpxWptLabelsV58 = [];
+  if(!gpxText || !route || !route.length) return;
+
+  const doc = new DOMParser().parseFromString(gpxText, "application/xml");
+  const wpts = Array.from(doc.getElementsByTagNameNS("*", "wpt"));
+  if(!wpts.length){
+    // fallback for browsers/files without namespace support
+    wpts.push(...Array.from(doc.getElementsByTagName("wpt")));
+  }
+
+  const labels = [];
+  for(const w of wpts){
+    const lat = Number(w.getAttribute("lat"));
+    const lon = Number(w.getAttribute("lon"));
+    if(!Number.isFinite(lat) || !Number.isFinite(lon)) continue;
+
+    const getTxt = tag => {
+      const a = w.getElementsByTagNameNS("*", tag);
+      if(a && a.length && a[0].textContent) return a[0].textContent.trim();
+      const b = w.getElementsByTagName(tag);
+      if(b && b.length && b[0].textContent) return b[0].textContent.trim();
+      return "";
+    };
+
+    const name = getTxt("name") || getTxt("cmt") || getTxt("desc");
+    if(!name) continue;
+
+    const idx = nearestRouteIndexToLatLonWptV58(lat, lon);
+    labels.push({
+      name,
+      label: name,
+      dist: route[idx].dist,
+      ele: route[idx].ele,
+      lat,
+      lon,
+      idx
+    });
+  }
+
+  gpxWptLabelsV58 = labels;
+
+  // Aktualizacja możliwych nazw tablic używanych przez starsze wersje.
+  try { gpxNotePoints = labels; } catch(e) {}
+  try { userPoints = labels; } catch(e) {}
+  window.gpxWptLabelsV58 = labels;
+}
+
+function drawWptLabelsV58(){
+  if(!gpxWptLabelsV58 || !gpxWptLabelsV58.length) return;
+  if(typeof xForDist !== "function" || typeof yForEle !== "function") return;
+
+  const dpr = devicePixelRatio || 1;
+  ctx.save();
+  ctx.font = `bold ${22*dpr}px system-ui, -apple-system, Segoe UI, sans-serif`;
+  ctx.textAlign = "center";
+  ctx.textBaseline = "bottom";
+
+  for(const p of gpxWptLabelsV58){
+    if(p.dist < viewStart || p.dist > viewEnd) continue;
+
+    const x = xForDist(p.dist);
+    const y = yForEle(p.ele);
+
+    ctx.strokeStyle = "#f8fafc";
+    ctx.lineWidth = 3*dpr;
+    ctx.beginPath();
+    ctx.moveTo(x, y - 8*dpr);
+    ctx.lineTo(x, y - 34*dpr);
+    ctx.stroke();
+
+    ctx.fillStyle = "#f8fafc";
+    ctx.strokeStyle = "rgba(3,7,18,0.95)";
+    ctx.lineWidth = 4*dpr;
+    ctx.strokeText(p.name, x, y - 38*dpr);
+    ctx.fillText(p.name, x, y - 38*dpr);
+  }
+
+  ctx.restore();
+
+  drawWptLabelsV58();
+}
+
+
 function draw(){
   if(!route.length) return;
   if(viewEnd<=viewStart){ viewStart=0; viewEnd=totalDist; }
@@ -852,7 +958,7 @@ ctx.strokeStyle='#020617'; ctx.lineWidth=2*devicePixelRatio; ctx.stroke();
     ctx.textBaseline='middle';
     const labelW = ctx.measureText(slopeText).width + 24*devicePixelRatio;
     const labelH = 32*devicePixelRatio;
-  /* v57 forecast label edge correction */
+  /* v58 forecast label edge correction */
   const chartRightLimit = canvas.width - 18*devicePixelRatio;
   const chartLeftLimit = 76*devicePixelRatio;
   if (fx + labelW + 10*devicePixelRatio > chartRightLimit) {
@@ -860,7 +966,7 @@ ctx.strokeStyle='#020617'; ctx.lineWidth=2*devicePixelRatio; ctx.stroke();
   }
   if (lx < chartLeftLimit) lx = chartLeftLimit;
   if (lx + labelW > chartRightLimit) lx = chartRightLimit - labelW;
-  /* v57 forecast label at bottom */
+  /* v58 forecast label at bottom */
   ly = bottom - labelH - 8*devicePixelRatio;
     let lx = clamp(mx - labelW/2, padL, w - padR - labelW);
     let ly = my - 46*devicePixelRatio;
@@ -955,7 +1061,7 @@ function isForecastHandle(clientX, clientY){
   const h=forecastLabelHit;
   const labelHit=x>=h.lx && x<=h.lx+h.labelW && y>=h.ly && y<=h.ly+h.labelH;
   const lineHit=Math.abs(x-h.fx)<=34*devicePixelRatio && y>=h.padT && y<=h.bottom;
-  // v57 bottom forecast handle zone
+  // v58 bottom forecast handle zone
   const bottomZone = Math.abs(x-h.fx) <= 46*devicePixelRatio && y >= (h.bottom - 90*devicePixelRatio) && y <= h.bottom;
   return labelHit || lineHit || bottomZone;
 }
@@ -1472,6 +1578,39 @@ function bindYButtons(){
 document.addEventListener("DOMContentLoaded", bindYButtons);
 setTimeout(bindYButtons, 0);
 setTimeout(bindYButtons, 500);
+
+
+function bindWptReaderV58(){
+  const f = document.getElementById("file") || document.querySelector('input[type="file"]');
+  if(!f || f.dataset.boundWptV58 === "1") return;
+  f.dataset.boundWptV58 = "1";
+
+  f.addEventListener("change", async e => {
+    const file = e.target.files && e.target.files[0];
+    if(!file) return;
+    try{
+      const txt = await file.text();
+      // Dajemy oryginalnemu parserowi GPX chwilę na ustawienie route.
+      setTimeout(() => {
+        try{
+          extractWptLabelsFromGpxTextV58(txt);
+          if(typeof draw === "function") draw();
+          const status = document.getElementById("status");
+          if(status && gpxWptLabelsV58.length){
+            status.textContent = status.textContent + " | WPT: " + gpxWptLabelsV58.length;
+          }
+        } catch(err){
+          const status = document.getElementById("status");
+          if(status) status.textContent = "Błąd WPT: " + err.message;
+        }
+      }, 250);
+    } catch(err){}
+  });
+}
+
+document.addEventListener("DOMContentLoaded", bindWptReaderV58);
+setTimeout(bindWptReaderV58, 0);
+setTimeout(bindWptReaderV58, 500);
 
 window.addEventListener('resize', resize);
 if('serviceWorker' in navigator){ navigator.serviceWorker.register('service-worker.js').catch(()=>{}); }
