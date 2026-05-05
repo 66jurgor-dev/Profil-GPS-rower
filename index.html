@@ -38,7 +38,7 @@ canvas { width:100%; height:46vh; min-height:280px; display:block; background:#0
 
 .btn-blue { background:#2563eb; color:white; }
 
-/* ===== v48: większy interfejs terenowy ===== */
+/* ===== v49: większy interfejs terenowy ===== */
 button,
 .btn,
 input[type="button"],
@@ -84,7 +84,7 @@ select {
 }
 
 
-/* ===== v48: przyciski centralnie w dwóch rzędach ===== */
+/* ===== v49: przyciski centralnie w dwóch rzędach ===== */
 .controls, .button-row, .buttons, .actions, .toolbar, .bottom-buttons {
   display: flex !important;
   flex-wrap: wrap !important;
@@ -109,9 +109,30 @@ label[for="gpxFileInput"], label[for="gpxInput"], .gpx-button, .file-button, .fi
 }
 
 
-/* v48: Nachylenie 50 m jako normalny kafelek danych */
+/* v49: Nachylenie 50 m jako normalny kafelek danych */
 #slopeForward50Value {
   font-weight: 700 !important;
+}
+
+
+/* ===== v49: jednakowa szerokość przycisków ===== */
+.controls button,
+.button-row button,
+.buttons button,
+.actions button,
+.toolbar button,
+.bottom-buttons button,
+label[for="gpxFileInput"],
+label[for="gpxInput"],
+.file-label,
+.gpx-button,
+.file-button,
+label:has(input[type="file"]) {
+  width: 10.8rem !important;
+  min-width: 10.8rem !important;
+  max-width: 10.8rem !important;
+  box-sizing: border-box !important;
+  text-align: center !important;
 }
 
 </style>
@@ -128,10 +149,10 @@ label[for="gpxFileInput"], label[for="gpxInput"], .gpx-button, .file-button, .fi
 <section class="panel info-panel">
   <p id="status" class="status">Wczytaj plik GPX albo użyj trasy wbudowanej do testu interfejsu.</p>
   <div class="grid">
-    <div class="tile">Km aplikacji<b id="roughKm">-</b></div>
-    <div class="tile">Do końca GPX<b id="left">-</b></div>
+    <div class="tile">Dystans<b id="roughKm">-</b></div>
+    <div class="tile">Pozostało<b id="left">-</b></div>
     <div class="tile">Wysokość z GPX<b id="ele">-</b></div>
-    <div class="tile">Cel<b id="eta">-</b></div>
+    <div class="tile">Czas do celu<b id="eta">-</b></div>
     <div class="tile">Pozycja GPS<b id="gpxCoord">-</b></div>
     <div class="tile">Prędkość aplikacji<b id="appSpeed">-</b></div>
     <div class="tile">Nachylenie 50 m<b id="slopeForward50Value">-</b></div>
@@ -814,7 +835,7 @@ ctx.strokeStyle='#020617'; ctx.lineWidth=2*devicePixelRatio; ctx.stroke();
     ctx.textBaseline='middle';
     const labelW = ctx.measureText(slopeText).width + 24*devicePixelRatio;
     const labelH = 32*devicePixelRatio;
-  /* v48 forecast label edge correction */
+  /* v49 forecast label edge correction */
   const chartRightLimit = canvas.width - 18*devicePixelRatio;
   const chartLeftLimit = 76*devicePixelRatio;
   if (fx + labelW + 10*devicePixelRatio > chartRightLimit) {
@@ -822,7 +843,7 @@ ctx.strokeStyle='#020617'; ctx.lineWidth=2*devicePixelRatio; ctx.stroke();
   }
   if (lx < chartLeftLimit) lx = chartLeftLimit;
   if (lx + labelW > chartRightLimit) lx = chartRightLimit - labelW;
-  /* v48 forecast label at bottom */
+  /* v49 forecast label at bottom */
   ly = bottom - labelH - 8*devicePixelRatio;
     let lx = clamp(mx - labelW/2, padL, w - padR - labelW);
     let ly = my - 46*devicePixelRatio;
@@ -917,7 +938,7 @@ function isForecastHandle(clientX, clientY){
   const h=forecastLabelHit;
   const labelHit=x>=h.lx && x<=h.lx+h.labelW && y>=h.ly && y<=h.ly+h.labelH;
   const lineHit=Math.abs(x-h.fx)<=34*devicePixelRatio && y>=h.padT && y<=h.bottom;
-  // v48 bottom forecast handle zone
+  // v49 bottom forecast handle zone
   const bottomZone = Math.abs(x-h.fx) <= 46*devicePixelRatio && y >= (h.bottom - 90*devicePixelRatio) && y <= h.bottom;
   return labelHit || lineHit || bottomZone;
 }
