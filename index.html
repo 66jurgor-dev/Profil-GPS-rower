@@ -165,6 +165,47 @@ label:has(input[type="file"]) {
   line-height: 1.25;
 }
 
+@media (max-width: 700px), (display-mode: standalone) {
+  html { font-size: 18px; -webkit-text-size-adjust: 115%; }
+  body { font-size: 18px; }
+  header { padding: 10px 10px; }
+  h1 { font-size: 1.25rem; }
+  main { padding: 7px; gap: 7px; }
+  .panel { padding: 7px; border-radius: 10px; }
+  canvas { height: 41vh; min-height: 245px; border-radius: 9px; }
+  .route-map { height: 20vh; min-height: 135px; margin-top: 6px; }
+  .grid { gap: 6px; }
+  .tile {
+    padding: 8px;
+    border-radius: 9px;
+    font-size: 1.08rem !important;
+    line-height: 1.15;
+  }
+  .tile b {
+    font-size: 1.42rem !important;
+    line-height: 1.1;
+    margin-top: 5px;
+  }
+  input.speed-input {
+    font-size: 1.35rem !important;
+    min-height: 2.7em !important;
+  }
+  .controls { gap: 0.4rem !important; }
+  .controls button,
+  label:has(input[type="file"]) {
+    width: 9.3rem !important;
+    min-width: 9.3rem !important;
+    max-width: 9.3rem !important;
+    min-height: 3.25em !important;
+    font-size: 1.12rem !important;
+    padding: 0.8em 0.55em !important;
+  }
+  #status {
+    font-size: 1.05rem !important;
+    padding: 0.55rem 0.65rem;
+  }
+}
+
 </style>
 </head>
 <body>
