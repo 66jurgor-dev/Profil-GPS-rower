@@ -27,6 +27,7 @@ input[type=file] { display:none; }
 input.speed-input { width:100%; margin-top:6px; background:#111827; color:var(--text); border:1px solid #374151; border-radius:10px; padding:8px; font-size:18px; font-weight:700; }
 input.point-input { min-width:160px; flex:1 1 180px; background:#111827; color:var(--text); border:1px solid #374151; border-radius:10px; padding:9px 11px; font-size:14px; }
 canvas { width:100%; height:46vh; min-height:280px; display:block; background:#020617; border-radius:12px; touch-action:none; }
+.route-map { height:22vh; min-height:150px; margin-top:8px; }
 .grid { display:grid; grid-template-columns: repeat(2, 1fr); gap:8px; }
 .tile { background:#020617; border:1px solid #1f2937; border-radius:12px; padding:9px; }
 .tile b { display:block; font-size:18px; margin-top:3px; }
@@ -34,7 +35,7 @@ canvas { width:100%; height:46vh; min-height:280px; display:block; background:#0
 .status { font-size:14px; color:var(--muted); }
 .ok { color:var(--ok); } .bad { color:var(--bad); } .accent { color:var(--accent); }
 .range { width:100%; }
-@media (orientation:landscape) { main { grid-template-columns: 1.6fr 1fr; } canvas { height:72vh; } }
+@media (orientation:landscape) { main { grid-template-columns: 1.6fr 1fr; } canvas { height:72vh; } .route-map { height:26vh; min-height:150px; } }
 
 .btn-blue { background:#2563eb; color:white; }
 
@@ -173,7 +174,7 @@ label:has(input[type="file"]) {
 <main>
 <section class="panel">
   <canvas id="profile"></canvas>
-  <input id="positionSlider" type="range" class="range" min="0" max="1000" step="1" value="0">
+  <canvas id="routeMap" class="route-map"></canvas>
 </section>
 <section class="panel info-panel">
 <div class="grid">
@@ -257,6 +258,8 @@ let pinchState = null;
 let forecastOffsetRatio = Number(localStorage.getItem('profilGpsForecastOffsetRatio') || '0.25');
 let forecastDragState = null;
 let forecastLabelHit = null;
+let positionDragState = null;
+let slopeLabelHit = null;
 let autoYActive = false;
 let autoYMin = null;
 let autoYMax = null;
@@ -265,6 +268,8 @@ let baseYMax = null;
 const activePointers = new Map();
 const canvas = document.getElementById('profile');
 const ctx = canvas.getContext('2d');
+const routeMapCanvas = document.getElementById('routeMap');
+const routeMapCtx = routeMapCanvas ? routeMapCanvas.getContext('2d') : null;
 const statusEl = document.getElementById('status');
 const sim = document.getElementById('sim') || document.getElementById('positionSlider');
 function rad(x){ return x*Math.PI/180; }
@@ -398,7 +403,7 @@ function resetCzasuAplikacji(){
   speedHistory = {signature:currentRouteSignature(), points:[]};
   saveSpeedHistory();
 
-  let resetSource = 'slider';
+  let resetSource = 'manual';
   let gpsDistance = null;
   if(Number.isFinite(lastGpsLat) && Number.isFinite(lastGpsLon)){
     const n = nearestGlobal(lastGpsLat, lastGpsLon);
@@ -428,7 +433,7 @@ function resetCzasuAplikacji(){
   if(appSpeedEl) appSpeedEl.textContent = '-';
   statusEl.textContent = resetSource === 'gps'
     ? 'Zresetowano czas i prędkość. Pozycję ustawiono według GPS.'
-    : 'Zresetowano czas i prędkość. Brak GPS: pozycję ustawiono według suwaka GPX.';
+    : 'Zresetowano czas i prędkość. Brak GPS: pozostawiono ręcznie ustawioną pozycję na śladzie GPX.';
 }
 
 function updateRoughTrackFromGps(lat, lon, acc){
@@ -502,7 +507,7 @@ function prepare(points){
   viewEnd=totalDist;
   autoCenter=false;
 
-  sim.value = route.length > 1 ? Math.round(1000*markerIdx/(route.length-1)) : 0;
+  if(sim) sim.value = route.length > 1 ? Math.round(1000*markerIdx/(route.length-1)) : 0;
   updateInfo();
   resize();
 }
@@ -947,7 +952,8 @@ function setManualPositionFromSlider(){
   // tylko szuka najbliższego punktu GPX względem aktualnego GPS
   // w oknie wokół wskazanego kilometra. Dzięki temu odcinki tam–powrót
   // są rozróżniane przez postęp po śladzie, a nie przez samą lokalizację.
-  const approxIdx = Math.round((route.length-1)*(sim.value/1000));
+  const approxValue = sim ? Number(sim.value) || 0 : Math.round(1000*markerIdx/Math.max(1, route.length-1));
+  const approxIdx = Math.round((route.length-1)*(approxValue/1000));
   const approxDist = route[approxIdx].dist;
 
   let n = null;
@@ -958,7 +964,7 @@ function setManualPositionFromSlider(){
   }
 
   markerIdx = n.idx;
-  sim.value = Math.round(1000*markerIdx/(route.length-1));
+  if(sim) sim.value = Math.round(1000*markerIdx/(route.length-1));
   trackingInitialized = true;
   manualLockCenterDist = route[markerIdx].dist;
   manualLockUntil = Date.now() + MANUAL_LOCK_MS;
@@ -979,10 +985,16 @@ function setManualPositionFromSlider(){
   }
 }
 
+function resizeCanvasToDisplaySize(c){
+  if(!c) return;
+  const r = c.getBoundingClientRect();
+  c.width = Math.round(r.width * devicePixelRatio);
+  c.height = Math.round(r.height * devicePixelRatio);
+}
+
 function resize(){
-  const r = canvas.getBoundingClientRect();
-  canvas.width = Math.round(r.width * devicePixelRatio);
-  canvas.height = Math.round(r.height * devicePixelRatio);
+  resizeCanvasToDisplaySize(canvas);
+  resizeCanvasToDisplaySize(routeMapCanvas);
   draw();
 }
 
@@ -1023,6 +1035,7 @@ function draw(){
   ctx.strokeStyle='#38bdf8'; ctx.lineWidth=2.2*devicePixelRatio; ctx.stroke();
   drawUserPoints(x, y, padT, padB, w, h);
   const m=route[markerIdx];
+  slopeLabelHit = null;
   if(m.dist>=viewStart && m.dist<=viewEnd){
     const mx=x(m), my=y(m);
     const mc = markerColor();
@@ -1046,6 +1059,8 @@ function draw(){
   updateSliderFromMarkerV54();
 
   updatePositionSliderV54();
+
+  drawRouteMap();
 }
 
 
@@ -1178,7 +1193,27 @@ function drawSlopeLabelAtMarker(x, y, padT, bottom){
 
   ctx.fillStyle = "#ffffff";
   ctx.fillText(text, bx + boxW/2, by + boxH/2 + 1*dpr);
+  slopeLabelHit = {bx, by, boxW, boxH};
   ctx.restore();
+}
+
+function isPositionHandle(clientX, clientY){
+  if(!slopeLabelHit) return false;
+  const rect = canvas.getBoundingClientRect();
+  const x = (clientX - rect.left) * devicePixelRatio;
+  const y = (clientY - rect.top) * devicePixelRatio;
+  const h = slopeLabelHit;
+  return x >= h.bx && x <= h.bx + h.boxW && y >= h.by && y <= h.by + h.boxH;
+}
+
+function setPositionFromClientX(clientX){
+  if(!route.length || viewEnd <= viewStart) return;
+  const rect = canvas.getBoundingClientRect();
+  const xCss = clientX - rect.left;
+  const padL = 76, padR = 18;
+  const frac = clamp((xCss - padL) / (rect.width - padL - padR), 0, 1);
+  const targetDist = viewStart + frac * (viewEnd - viewStart);
+  setMarkerByDistanceV54(targetDist, 'canvas');
 }
 
 
@@ -1388,6 +1423,129 @@ function padLForFloatingLabels(){
   return 54 * devicePixelRatio;
 }
 
+function drawRouteMap(){
+  if(!routeMapCanvas || !routeMapCtx) return;
+  const c = routeMapCanvas;
+  const mctx = routeMapCtx;
+  const w = c.width, h = c.height;
+  if(w <= 0 || h <= 0) return;
+  mctx.clearRect(0, 0, w, h);
+  mctx.fillStyle = '#020617';
+  mctx.fillRect(0, 0, w, h);
+  if(!route.length) return;
+
+  const dpr = devicePixelRatio || 1;
+  const pad = 18 * dpr;
+  const meanLat = route.reduce((sum, p) => sum + p.lat, 0) / route.length;
+  const lonScale = Math.max(0.15, Math.cos(rad(meanLat)));
+  const startDist = clamp(viewStart, 0, totalDist);
+  const endDist = clamp(viewEnd, startDist, totalDist);
+  const mapRoute = [routeSampleAtDist(startDist)]
+    .concat(route.filter(p => p.dist > startDist && p.dist < endDist))
+    .concat([routeSampleAtDist(endDist)]);
+  const projected = mapRoute
+    .filter(p => p && Number.isFinite(p.lat) && Number.isFinite(p.lon))
+    .map(p => ({x:p.lon * lonScale, y:p.lat, dist:p.dist}));
+  if(projected.length < 2) return;
+  let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+  for(const p of projected){
+    minX = Math.min(minX, p.x); maxX = Math.max(maxX, p.x);
+    minY = Math.min(minY, p.y); maxY = Math.max(maxY, p.y);
+  }
+  let spanX = maxX - minX, spanY = maxY - minY;
+  if(spanX <= 0) spanX = 1e-9;
+  if(spanY <= 0) spanY = 1e-9;
+  const scale = Math.min((w - 2*pad) / spanX, (h - 2*pad) / spanY);
+  const drawW = spanX * scale, drawH = spanY * scale;
+  const ox = (w - drawW) / 2;
+  const oy = (h - drawH) / 2;
+  const mapPoint = p => ({
+    x: ox + (p.lon * lonScale - minX) * scale,
+    y: oy + (maxY - p.lat) * scale
+  });
+  const mapProjected = p => ({
+    x: ox + (p.x - minX) * scale,
+    y: oy + (maxY - p.y) * scale
+  });
+
+  function strokeRoute(points, color, widthPx){
+    if(points.length < 2) return;
+    mctx.beginPath();
+    for(let i=0;i<points.length;i++){
+      const mp = mapProjected(points[i]);
+      if(i === 0) mctx.moveTo(mp.x, mp.y);
+      else mctx.lineTo(mp.x, mp.y);
+    }
+    mctx.strokeStyle = color;
+    mctx.lineWidth = widthPx * dpr;
+    mctx.lineJoin = 'round';
+    mctx.lineCap = 'round';
+    mctx.stroke();
+  }
+
+  strokeRoute(projected, '#38bdf8', 2.2);
+
+  const points = allVisiblePoints().filter(pt => pt.dist >= startDist && pt.dist <= endDist);
+  mctx.font = '700 '+(13*dpr)+'px system-ui';
+  mctx.textAlign = 'center';
+  mctx.textBaseline = 'bottom';
+  for(const pt of points){
+    if(!Number.isFinite(pt.lat) || !Number.isFinite(pt.lon)) continue;
+    const mp = mapPoint(pt);
+    mctx.fillStyle = '#fbbf24';
+    mctx.beginPath();
+    mctx.arc(mp.x, mp.y, 4.5*dpr, 0, Math.PI*2);
+    mctx.fill();
+    const label = String(pt.label || '').trim();
+    if(label){
+      const textW = Math.min(mctx.measureText(label).width + 12*dpr, 150*dpr);
+      const bx = clamp(mp.x - textW/2, 4*dpr, w - textW - 4*dpr);
+      const by = clamp(mp.y - 28*dpr, 4*dpr, h - 24*dpr);
+      mctx.fillStyle = 'rgba(2, 6, 23, 0.86)';
+      mctx.strokeStyle = '#fbbf24';
+      mctx.lineWidth = 1*dpr;
+      mctx.beginPath();
+      mctx.roundRect(bx, by, textW, 20*dpr, 6*dpr);
+      mctx.fill();
+      mctx.stroke();
+      mctx.save();
+      mctx.beginPath();
+      mctx.rect(bx+4*dpr, by, textW-8*dpr, 20*dpr);
+      mctx.clip();
+      mctx.fillStyle = '#fde68a';
+      mctx.fillText(label, bx + textW/2, by + 16*dpr);
+      mctx.restore();
+    }
+  }
+
+  const marker = route[markerIdx];
+  if(marker && marker.dist >= startDist && marker.dist <= endDist){
+    const mp = mapPoint(marker);
+    mctx.strokeStyle = '#020617';
+    mctx.lineWidth = 3*dpr;
+    mctx.fillStyle = markerColor();
+    mctx.beginPath();
+    mctx.arc(mp.x, mp.y, 8*dpr, 0, Math.PI*2);
+    mctx.fill();
+    mctx.stroke();
+  }
+
+  const fs = forecastStats();
+  if(fs && fs.endDist >= startDist && fs.endDist <= endDist){
+    const fp = routeSampleAtDist(fs.endDist);
+    if(fp){
+      const mp = mapPoint(fp);
+      mctx.strokeStyle = '#020617';
+      mctx.lineWidth = 3*dpr;
+      mctx.fillStyle = '#a78bfa';
+      mctx.beginPath();
+      mctx.arc(mp.x, mp.y, 7*dpr, 0, Math.PI*2);
+      mctx.fill();
+      mctx.stroke();
+    }
+  }
+}
+
 function drawDistanceScale(padL, padR, padT, padB, w, h){
   const axisY = h - 42*devicePixelRatio;
   const tickTop = axisY - 8*devicePixelRatio;
@@ -1546,7 +1704,7 @@ fileInput.addEventListener('change', async e=>{
     yStretch=1;
     viewStart=0;
     viewEnd=totalDist;
-    sim.value = route.length > 1 ? Math.round(1000*markerIdx/(route.length-1)) : 0;
+    if(sim) sim.value = route.length > 1 ? Math.round(1000*markerIdx/(route.length-1)) : 0;
     requestAnimationFrame(()=>{ resize(); draw(); });
 
     if(data.notePoints.length){
@@ -1573,7 +1731,7 @@ gpsButton.addEventListener('click', ()=>{
     lastGpsLon = pos.coords.longitude;
     updateRoughTrackFromGps(pos.coords.latitude, pos.coords.longitude, pos.coords.accuracy);
     const n=nearestTracked(pos.coords.latitude, pos.coords.longitude);
-    markerIdx=n.idx; sim.value=Math.round(1000*markerIdx/(route.length-1));
+    markerIdx=n.idx; if(sim) sim.value=Math.round(1000*markerIdx/(route.length-1));
     recordSpeedPosition(route[markerIdx].dist, 'gps');
     updateInfo(n.d, pos.coords.accuracy);
     autoScrollAfterMarkerHalf();
@@ -1601,6 +1759,14 @@ function startPinchIfPossible(){
 canvas.addEventListener('pointerdown', e=>{
   canvas.setPointerCapture(e.pointerId);
   activePointers.set(e.pointerId, {x:e.clientX, y:e.clientY});
+  if(activePointers.size === 1 && isPositionHandle(e.clientX, e.clientY)){
+    positionDragState={id:e.pointerId};
+    setPositionFromClientX(e.clientX);
+    forecastDragState=null;
+    dragState=null;
+    e.preventDefault();
+    return;
+  }
   if(activePointers.size === 1 && isForecastHandle(e.clientX, e.clientY)){
     forecastDragState={id:e.pointerId};
     setForecastFromClientX(e.clientX);
@@ -1612,11 +1778,18 @@ canvas.addEventListener('pointerdown', e=>{
     dragState={id:e.pointerId, x:e.clientX, start:viewStart, end:viewEnd};
   } else if(activePointers.size === 2){
     forecastDragState=null;
+    positionDragState=null;
     startPinchIfPossible();
   }
 });
 canvas.addEventListener('pointermove', e=>{
   if(activePointers.has(e.pointerId)) activePointers.set(e.pointerId, {x:e.clientX, y:e.clientY});
+
+  if(positionDragState && positionDragState.id===e.pointerId){
+    setPositionFromClientX(e.clientX);
+    e.preventDefault();
+    return;
+  }
 
   if(forecastDragState && forecastDragState.id===e.pointerId){
     setForecastFromClientX(e.clientX);
@@ -1644,6 +1817,12 @@ canvas.addEventListener('pointermove', e=>{
 });
 function endPointer(e){
   activePointers.delete(e.pointerId);
+  if(positionDragState && positionDragState.id===e.pointerId){
+    positionDragState=null;
+    updateInfo();
+    draw();
+    return;
+  }
   if(forecastDragState && forecastDragState.id===e.pointerId){
     forecastDragState=null;
     updateInfo();
