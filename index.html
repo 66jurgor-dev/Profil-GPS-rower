@@ -846,11 +846,71 @@ function appSpeedKmh(){
   if(!Number.isFinite(v) || v < 0 || v > 120) return null;
   return v;
 }
-function effectiveSpeedMps(){
+function slopePercentBetweenDist(startDist, endDist){
+  if(!route.length) return null;
+  const span = endDist - startDist;
+  if(!Number.isFinite(span) || Math.abs(span) < 1) return null;
+  const e1 = elevationAtDist(startDist);
+  const e2 = elevationAtDist(endDist);
+  if(e1 === null || e2 === null || !Number.isFinite(e1) || !Number.isFinite(e2)) return null;
+  return 100 * (e2 - e1) / span;
+}
+function speedSlopeModelKmh(){
+  if(!speedHistory || !Array.isArray(speedHistory.points) || speedHistory.points.length < 4) return null;
+  const now = Date.now();
+  const tauMs = 45 * 60 * 1000;
+  let sumW = 0, sumWS = 0, sumWV = 0;
+  const rows = [];
+
+  for(let i=1; i<speedHistory.points.length; i++){
+    const a = speedHistory.points[i-1];
+    const b = speedHistory.points[i];
+    if(!a || !b) continue;
+    const dtH = (b.t - a.t) / 3600000;
+    const ddKm = (b.dist - a.dist) / 1000;
+    if(!Number.isFinite(dtH) || !Number.isFinite(ddKm) || dtH <= 1/120 || dtH > 1 || ddKm <= 0.02) continue;
+    const speed = ddKm / dtH;
+    if(!Number.isFinite(speed) || speed < 0 || speed > 120) continue;
+    const slope = slopePercentBetweenDist(a.dist, b.dist);
+    if(slope === null || !Number.isFinite(slope)) continue;
+    const w = Math.exp(-Math.max(0, now - b.t) / tauMs);
+    rows.push({w, slope, speed});
+    sumW += w;
+    sumWS += w * slope;
+    sumWV += w * speed;
+  }
+
+  if(rows.length < 3 || sumW <= 0) return null;
+  const meanS = sumWS / sumW;
+  const meanV = sumWV / sumW;
+  let varS = 0, covSV = 0;
+  for(const r of rows){
+    const ds = r.slope - meanS;
+    const dv = r.speed - meanV;
+    varS += r.w * ds * ds;
+    covSV += r.w * ds * dv;
+  }
+  if(varS < 0.01) return null;
+  const a = covSV / varS;
+  const b = meanV - a * meanS;
+  if(!Number.isFinite(a) || !Number.isFinite(b)) return null;
+  return {a, b, count:rows.length};
+}
+function modeledSpeedKmhForSlope(slope){
+  if(slope === null || !Number.isFinite(slope)) return null;
+  const model = speedSlopeModelKmh();
+  if(!model) return null;
+  const speed = model.a * slope + model.b;
+  if(!Number.isFinite(speed)) return null;
+  return clamp(speed, 1, 120);
+}
+function effectiveSpeedMps(slope=null){
   // Wpisana prędkość > 0 ma pierwszeństwo.
   // Wartość 0 lub puste pole oznacza tryb automatyczny na podstawie historii pozycji GPS/Ustaw km.
   const manual = manualSpeedMps();
   if(manual !== null) return manual;
+  const modeled = modeledSpeedKmhForSlope(slope);
+  if(modeled !== null) return modeled / 3.6;
   const appV = appSpeedKmh();
   if(appV === null) return null;
   return appV / 3.6;
@@ -862,6 +922,16 @@ function etaToEndSeconds(){
   const speed = effectiveSpeedMps();
   if(speed === null) return null;
   return left / speed;
+}
+function etaToForecastSeconds(){
+  if(!route.length) return null;
+  const fs = forecastStats();
+  if(!fs) return null;
+  const dist = Math.max(0, fs.endDist - fs.startDist);
+  const slope = slopePercentBetweenDist(fs.startDist, fs.endDist);
+  const speed = effectiveSpeedMps(slope);
+  if(speed === null) return null;
+  return dist / speed;
 }
 function setManualPositionFromSlider(){
   if(!route.length) return;
@@ -1392,11 +1462,13 @@ function updateInfo(gpsD=null, acc=null){
   const rk = document.getElementById('roughKm');
   if(rk) rk.textContent = roughTrack && Number.isFinite(roughTrack.dist) ? (roughTrack.dist/1000).toFixed(2)+' km' : '-';
   const appSpeedEl = document.getElementById('appSpeed');
-  const appV = appSpeedKmh();
+  const fsForSpeed = forecastStats();
+  const forecastSlope = fsForSpeed ? slopePercentBetweenDist(fsForSpeed.startDist, fsForSpeed.endDist) : null;
+  const appV = modeledSpeedKmhForSlope(forecastSlope) ?? appSpeedKmh();
   if(appSpeedEl) appSpeedEl.textContent = appV === null ? '-' : appV.toFixed(1) + ' km/h';
   document.getElementById('ele').textContent=Math.round(p.ele)+' m';
   document.getElementById('left').textContent=((totalDist-p.dist)/1000).toFixed(2)+' km';
-  document.getElementById('eta').textContent=formatArrivalTime(etaToEndSeconds());
+  document.getElementById('eta').textContent=formatArrivalTime(etaToForecastSeconds());
   const offEl = document.getElementById('off');
   if(offEl) offEl.textContent=lastGpsDistance==null?'-':Math.round(lastGpsDistance)+' m';
   const accEl = document.getElementById('acc');
