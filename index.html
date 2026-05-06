@@ -181,7 +181,7 @@ label:has(input[type="file"]) {
     <div class="tile">Pozostało<b id="left">-</b></div>
     <div class="tile">Wysokość z GPX<b id="ele">-</b></div>
     <div class="tile">Koniec o:<b id="eta">-</b></div>
-    <div class="tile">Pozycja GPS<b id="gpxCoord">-</b></div>
+    <div class="tile">Czas do:<b id="timeToForecast">-</b></div>
     <div class="tile">Prędkość z aplikacji<b id="appSpeed">-</b></div>
     <div class="tile">Nachylenie 50 m<b id="slopeForward50Value">-</b></div>
 
@@ -1102,6 +1102,7 @@ function setForecastFromClientX(clientX){
   const startDist=route[markerIdx] ? route[markerIdx].dist : 0;
   forecastOffsetRatio=clampForecastRatio((targetDist-startDist)/(viewEnd-viewStart));
   localStorage.setItem('profilGpsForecastOffsetRatio', String(forecastOffsetRatio));
+  updateInfo();
   draw();
 }
 function isForecastHandle(clientX, clientY){
@@ -1457,8 +1458,9 @@ function updateInfo(gpsD=null, acc=null){
   if(gpsD!==null) lastGpsDistance=gpsD;
   if(acc!==null) lastGpsAccuracy=acc;
   const p=route[markerIdx];
-  const coordEl = document.getElementById('gpxCoord');
-  if(coordEl){ coordEl.textContent = formatGpxCoord(p); coordEl.classList.add('coord'); }
+  const timeToForecastEl = document.getElementById('timeToForecast');
+  const forecastSeconds = etaToForecastSeconds();
+  if(timeToForecastEl) timeToForecastEl.textContent = formatDuration(forecastSeconds);
   const rk = document.getElementById('roughKm');
   if(rk) rk.textContent = roughTrack && Number.isFinite(roughTrack.dist) ? (roughTrack.dist/1000).toFixed(2)+' km' : '-';
   const appSpeedEl = document.getElementById('appSpeed');
@@ -1468,7 +1470,7 @@ function updateInfo(gpsD=null, acc=null){
   if(appSpeedEl) appSpeedEl.textContent = appV === null ? '-' : appV.toFixed(1) + ' km/h';
   document.getElementById('ele').textContent=Math.round(p.ele)+' m';
   document.getElementById('left').textContent=((totalDist-p.dist)/1000).toFixed(2)+' km';
-  document.getElementById('eta').textContent=formatArrivalTime(etaToForecastSeconds());
+  document.getElementById('eta').textContent=formatArrivalTime(forecastSeconds);
   const offEl = document.getElementById('off');
   if(offEl) offEl.textContent=lastGpsDistance==null?'-':Math.round(lastGpsDistance)+' m';
   const accEl = document.getElementById('acc');
@@ -1486,7 +1488,7 @@ function updateInfo(gpsD=null, acc=null){
 }
 setInterval(()=>{
   if(route.length) updateInfo();
-}, 10000);
+}, 1000);
 
 const manualSpeedEl = document.getElementById('manualSpeed');
 if(manualSpeedEl){
@@ -1621,6 +1623,12 @@ canvas.addEventListener('pointermove', e=>{
 });
 function endPointer(e){
   activePointers.delete(e.pointerId);
+  if(forecastDragState && forecastDragState.id===e.pointerId){
+    forecastDragState=null;
+    updateInfo();
+    draw();
+    return;
+  }
   if(pinchState){
     pinchState = null;
     if(activePointers.size === 1){
