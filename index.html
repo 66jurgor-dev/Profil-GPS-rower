@@ -179,9 +179,11 @@ label:has(input[type="file"]) {
 <div class="grid">
     <div class="tile">Dystans<b id="roughKm">-</b></div>
     <div class="tile">Pozostało<b id="left">-</b></div>
-    <div class="tile">Wysokość z GPX<b id="ele">-</b></div>
     <div class="tile">Koniec o:<b id="eta">-</b></div>
     <div class="tile">Czas do:<b id="timeToForecast">-</b></div>
+    <div class="tile">Wznios DO<b id="ascentToForecast">-</b></div>
+    <div class="tile">Wznios PO<b id="ascentAfterForecast">-</b></div>
+    <div class="tile">Wysokość z GPX<b id="ele">-</b></div>
     <div class="tile">Prędkość z aplikacji<b id="appSpeed">-</b></div>
     <div class="tile">Nachylenie 50 m<b id="slopeForward50Value">-</b></div>
 
@@ -813,6 +815,10 @@ function formatDuration(seconds){
   if(h <= 0) return m + ' min';
   return h + ':' + String(m).padStart(2, '0') + ' h';
 }
+function formatMeters(value){
+  if(value === null || !Number.isFinite(value)) return '-';
+  return Math.round(value) + ' m';
+}
 function manualSpeedMps(){
   const el = document.getElementById('manualSpeed');
   if(!el) return null;
@@ -1069,6 +1075,13 @@ function forecastStats(){
   const startDist = route[markerIdx] ? route[markerIdx].dist : 0;
   const width = Math.max(1, viewEnd-viewStart);
   const endDist = clamp(startDist + width*forecastOffsetRatio, 0, totalDist);
+  return elevationStatsBetweenDist(startDist, endDist);
+}
+
+function elevationStatsBetweenDist(startDist, endDist){
+  if(!route.length) return null;
+  startDist = clamp(startDist, 0, totalDist);
+  endDist = clamp(endDist, 0, totalDist);
   if(endDist <= startDist + 1) return {startDist, endDist, up:0, down:0};
 
   const samples = [routeSampleAtDist(startDist)];
@@ -1089,7 +1102,7 @@ function forecastStats(){
 
 function clampForecastRatio(v){
   if(!Number.isFinite(v)) return 0.25;
-  return clamp(v, 0.03, 1.00);
+  return clamp(v, 0, 1.00);
 }
 function setForecastFromClientX(clientX){
   if(!route.length || viewEnd<=viewStart) return;
@@ -1254,7 +1267,7 @@ function drawSlopeLabelOverlay(){
 
 function drawForecast(x, padL, padT, padB, w, h){
   const fs = forecastStats();
-  if(!fs || fs.endDist <= viewStart || fs.endDist > viewEnd + 1){ forecastLabelHit=null; return; }
+  if(!fs || fs.endDist < viewStart - 1 || fs.endDist > viewEnd + 1){ forecastLabelHit=null; return; }
   const fx = x({dist:fs.endDist, ele:0});
   const bottom = h - padB;
 
@@ -1461,6 +1474,14 @@ function updateInfo(gpsD=null, acc=null){
   const timeToForecastEl = document.getElementById('timeToForecast');
   const forecastSeconds = etaToForecastSeconds();
   if(timeToForecastEl) timeToForecastEl.textContent = formatDuration(forecastSeconds);
+  const fsForAscent = forecastStats();
+  const ascentToForecastEl = document.getElementById('ascentToForecast');
+  const ascentAfterForecastEl = document.getElementById('ascentAfterForecast');
+  if(ascentToForecastEl) ascentToForecastEl.textContent = formatMeters(fsForAscent ? fsForAscent.up : null);
+  if(ascentAfterForecastEl){
+    const afterStats = fsForAscent ? elevationStatsBetweenDist(fsForAscent.endDist, totalDist) : null;
+    ascentAfterForecastEl.textContent = formatMeters(afterStats ? afterStats.up : null);
+  }
   const rk = document.getElementById('roughKm');
   if(rk) rk.textContent = roughTrack && Number.isFinite(roughTrack.dist) ? (roughTrack.dist/1000).toFixed(2)+' km' : '-';
   const appSpeedEl = document.getElementById('appSpeed');
