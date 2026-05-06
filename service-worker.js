@@ -1,5 +1,5 @@
-const CACHE_NAME = 'profil-gps-pwa-v28-pwa-icon';
-const FILES = ['index.html','manifest.json','service-worker.js','trasa.js','icon.svg'];
+const CACHE_NAME = 'profil-gps-pwa-v29-png-icons';
+const FILES = ['index.html','manifest.json','service-worker.js','trasa.js','icon.svg','icon-192.png','icon-512.png'];
 self.addEventListener('install', e => {
   self.skipWaiting();
   e.waitUntil(caches.open(CACHE_NAME).then(c => c.addAll(FILES)));
