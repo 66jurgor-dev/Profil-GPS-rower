@@ -331,6 +331,8 @@ function recordSpeedPosition(dist, source='gps'){
       speedHistory.points = [];
     }
     speedHistory.points.push({t:now, dist, source});
+  } else if(source === 'reset'){
+    speedHistory.points = [{t:now, dist, source}];
   } else {
     if(last){
       const dt = (now - last.t) / 1000;
@@ -803,6 +805,14 @@ function formatArrivalTime(seconds){
   const target = new Date(Date.now() + seconds * 1000);
   return formatClock(target);
 }
+function formatDuration(seconds){
+  if(seconds === null || !Number.isFinite(seconds) || seconds < 0) return '-';
+  const totalMinutes = Math.round(seconds / 60);
+  const h = Math.floor(totalMinutes / 60);
+  const m = totalMinutes % 60;
+  if(h <= 0) return m + ' min';
+  return h + ':' + String(m).padStart(2, '0') + ' h';
+}
 function manualSpeedMps(){
   const el = document.getElementById('manualSpeed');
   if(!el) return null;
@@ -813,13 +823,26 @@ function manualSpeedMps(){
 }
 function appSpeedKmh(){
   if(!speedHistory || !Array.isArray(speedHistory.points) || speedHistory.points.length < 2) return null;
-  const first = speedHistory.points[0];
-  const last = speedHistory.points[speedHistory.points.length - 1];
-  if(!first || !last) return null;
-  const dtH = ((last.t || 0) - (first.t || 0)) / 3600000;
-  const ddKm = ((last.dist || 0) - (first.dist || 0)) / 1000;
-  if(!Number.isFinite(dtH) || !Number.isFinite(ddKm) || dtH <= 1/60 || ddKm <= 0.02) return null;
-  const v = ddKm / dtH;
+  const now = Date.now();
+  const tauMs = 45 * 60 * 1000;
+  let sumW = 0;
+  let sumWV = 0;
+  for(let i=1; i<speedHistory.points.length; i++){
+    const a = speedHistory.points[i-1];
+    const b = speedHistory.points[i];
+    if(!a || !b) continue;
+    const dtH = (b.t - a.t) / 3600000;
+    const ddKm = (b.dist - a.dist) / 1000;
+    if(!Number.isFinite(dtH) || !Number.isFinite(ddKm) || dtH <= 1/120 || dtH > 1 || ddKm <= 0.02) continue;
+    const vSeg = ddKm / dtH;
+    if(!Number.isFinite(vSeg) || vSeg < 0 || vSeg > 120) continue;
+    const ageMs = Math.max(0, now - b.t);
+    const w = Math.exp(-ageMs / tauMs);
+    sumW += w;
+    sumWV += w * vSeg;
+  }
+  if(sumW <= 0) return null;
+  const v = sumWV / sumW;
   if(!Number.isFinite(v) || v < 0 || v > 120) return null;
   return v;
 }
@@ -840,8 +863,6 @@ function etaToEndSeconds(){
   if(speed === null) return null;
   return left / speed;
 }
-
-
 function setManualPositionFromSlider(){
   if(!route.length) return;
 
