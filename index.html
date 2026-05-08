@@ -297,6 +297,7 @@ let autoCenter = false;
 let dragState = null;
 let pinchState = null;
 let forecastOffsetRatio = Number(localStorage.getItem('profilGpsForecastOffsetRatio') || '0.25');
+let forecastTargetDist = Number(localStorage.getItem('profilGpsForecastTargetDist') || 'NaN');
 let forecastDragState = null;
 let forecastLabelHit = null;
 let positionDragState = null;
@@ -470,8 +471,6 @@ function resetCzasuAplikacji(){
   updateInfo(gpsDistance, lastGpsAccuracy);
   draw();
 
-  const appSpeedEl = document.getElementById('appSpeed');
-  if(appSpeedEl) appSpeedEl.textContent = '-';
   statusEl.textContent = resetSource === 'gps'
     ? 'Zresetowano czas i prędkość. Pozycję ustawiono według GPS.'
     : 'Zresetowano czas i prędkość. Brak GPS: pozostawiono ręcznie ustawioną pozycję na śladzie GPX.';
@@ -547,6 +546,8 @@ function prepare(points){
   viewStart=0;
   viewEnd=totalDist;
   autoCenter=false;
+  forecastTargetDist=NaN;
+  localStorage.removeItem('profilGpsForecastTargetDist');
 
   if(sim) sim.value = route.length > 1 ? Math.round(1000*markerIdx/(route.length-1)) : 0;
   updateInfo();
@@ -855,7 +856,7 @@ function formatArrivalTime(seconds){
 }
 function formatDuration(seconds){
   if(seconds === null || !Number.isFinite(seconds) || seconds < 0) return '-';
-  const totalMinutes = Math.round(seconds / 60);
+  const totalMinutes = Math.ceil(seconds / 60);
   const h = Math.floor(totalMinutes / 60);
   const m = totalMinutes % 60;
   if(h <= 0) return m + ' min';
@@ -865,13 +866,17 @@ function formatMeters(value){
   if(value === null || !Number.isFinite(value)) return '-';
   return Math.round(value) + ' m';
 }
-function manualSpeedMps(){
+function manualSpeedKmh(){
   const el = document.getElementById('manualSpeed');
   if(!el) return null;
   const raw = String(el.value || '').replace(',', '.');
   const kmh = parseFloat(raw);
   if(!Number.isFinite(kmh) || kmh <= 0) return null;
-  return kmh / 3.6;
+  return kmh;
+}
+function manualSpeedMps(){
+  const kmh = manualSpeedKmh();
+  return kmh === null ? null : kmh / 3.6;
 }
 function appSpeedKmh(){
   if(!speedHistory || !Array.isArray(speedHistory.points) || speedHistory.points.length < 2) return null;
@@ -956,16 +961,20 @@ function modeledSpeedKmhForSlope(slope){
   if(!Number.isFinite(speed)) return null;
   return clamp(speed, 1, 120);
 }
+function etaSpeedKmhForSlope(slope=null){
+  const manual = manualSpeedKmh();
+  if(manual !== null) return {kmh:manual, source:'manual'};
+  const modeled = modeledSpeedKmhForSlope(slope);
+  if(modeled !== null) return {kmh:modeled, source:'model'};
+  const appV = appSpeedKmh();
+  if(appV !== null) return {kmh:appV, source:'app'};
+  return null;
+}
 function effectiveSpeedMps(slope=null){
   // Wpisana prędkość > 0 ma pierwszeństwo.
   // Wartość 0 lub puste pole oznacza tryb automatyczny na podstawie historii pozycji GPS/Ustaw km.
-  const manual = manualSpeedMps();
-  if(manual !== null) return manual;
-  const modeled = modeledSpeedKmhForSlope(slope);
-  if(modeled !== null) return modeled / 3.6;
-  const appV = appSpeedKmh();
-  if(appV === null) return null;
-  return appV / 3.6;
+  const etaSpeed = etaSpeedKmhForSlope(slope);
+  return etaSpeed ? etaSpeed.kmh / 3.6 : null;
 }
 function etaToEndSeconds(){
   if(!route.length) return null;
@@ -1130,7 +1139,14 @@ function forecastStats(){
   if(!route.length) return null;
   const startDist = route[markerIdx] ? route[markerIdx].dist : 0;
   const width = Math.max(1, viewEnd-viewStart);
-  const endDist = clamp(startDist + width*forecastOffsetRatio, 0, totalDist);
+  const ratioEndDist = clamp(startDist + width*forecastOffsetRatio, startDist, totalDist);
+  let endDist = ratioEndDist;
+  if(Number.isFinite(forecastTargetDist)){
+    const savedDist = clamp(forecastTargetDist, startDist, totalDist);
+    if(savedDist >= viewStart - 1 && savedDist <= viewEnd + 1){
+      endDist = savedDist;
+    }
+  }
   return elevationStatsBetweenDist(startDist, endDist);
 }
 
@@ -1167,9 +1183,11 @@ function setForecastFromClientX(clientX){
   const wCss=rect.width;
   const padL=76, padR=18;
   const frac=clamp((xCss-padL)/(wCss-padL-padR),0,1);
-  const targetDist=viewStart+frac*(viewEnd-viewStart);
   const startDist=route[markerIdx] ? route[markerIdx].dist : 0;
+  const targetDist=clamp(viewStart+frac*(viewEnd-viewStart), startDist, totalDist);
+  forecastTargetDist=targetDist;
   forecastOffsetRatio=clampForecastRatio((targetDist-startDist)/(viewEnd-viewStart));
+  localStorage.setItem('profilGpsForecastTargetDist', String(forecastTargetDist));
   localStorage.setItem('profilGpsForecastOffsetRatio', String(forecastOffsetRatio));
   updateInfo();
   draw();
@@ -1686,8 +1704,12 @@ function updateInfo(gpsD=null, acc=null){
   const appSpeedEl = document.getElementById('appSpeed');
   const fsForSpeed = forecastStats();
   const forecastSlope = fsForSpeed ? slopePercentBetweenDist(fsForSpeed.startDist, fsForSpeed.endDist) : null;
-  const appV = modeledSpeedKmhForSlope(forecastSlope) ?? appSpeedKmh();
-  if(appSpeedEl) appSpeedEl.textContent = appV === null ? '-' : appV.toFixed(1) + ' km/h';
+  const etaSpeed = etaSpeedKmhForSlope(forecastSlope);
+  if(appSpeedEl){
+    appSpeedEl.textContent = etaSpeed === null
+      ? '-'
+      : etaSpeed.kmh.toFixed(1) + ' km/h' + (etaSpeed.source === 'manual' ? ' ręcz.' : '');
+  }
   document.getElementById('ele').textContent=Math.round(p.ele)+' m';
   document.getElementById('left').textContent=((totalDist-p.dist)/1000).toFixed(2)+' km';
   document.getElementById('eta').textContent=formatArrivalTime(forecastSeconds);
@@ -2234,6 +2256,8 @@ function applyRouteV54(points, waypoints, sourceName){
   markerIdx = 0;
   viewStart = 0;
   viewEnd = totalDist;
+  forecastTargetDist=NaN;
+  localStorage.removeItem('profilGpsForecastTargetDist');
 
   if(typeof xZoom !== "undefined") xZoom = 1;
   if(typeof yStretch !== "undefined") yStretch = 1;

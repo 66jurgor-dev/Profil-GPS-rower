@@ -1,4 +1,4 @@
-const CACHE_NAME = 'profil-gps-pwa-v30-large-mobile-ui';
+const CACHE_NAME = 'profil-gps-pwa-v32-eta-speed-consistency';
 const FILES = ['index.html','manifest.json','service-worker.js','trasa.js','icon.svg','icon-192.png','icon-512.png'];
 self.addEventListener('install', e => {
   self.skipWaiting();
