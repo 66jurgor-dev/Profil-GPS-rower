@@ -220,7 +220,7 @@ label:has(input[type="file"]) {
 <section class="panel info-panel">
 <div class="grid">
     <div class="tile">Dystans<b id="roughKm">-</b></div>
-    <div class="tile">Pozostało<b id="left">-</b></div>
+    <div class="tile">Do prognozy<b id="left">-</b></div>
     <div class="tile">Koniec o:<b id="eta">-</b></div>
     <div class="tile">Czas do:<b id="timeToForecast">-</b></div>
     <div class="tile">Wznios DO<b id="ascentToForecast">-</b></div>
@@ -1711,7 +1711,7 @@ function updateInfo(gpsD=null, acc=null){
       : etaSpeed.kmh.toFixed(1) + ' km/h' + (etaSpeed.source === 'manual' ? ' ręcz.' : '');
   }
   document.getElementById('ele').textContent=Math.round(p.ele)+' m';
-  document.getElementById('left').textContent=((totalDist-p.dist)/1000).toFixed(2)+' km';
+  document.getElementById('left').textContent=fsForAscent ? ((fsForAscent.endDist - fsForAscent.startDist)/1000).toFixed(2)+' km' : '-';
   document.getElementById('eta').textContent=formatArrivalTime(forecastSeconds);
   const offEl = document.getElementById('off');
   if(offEl) offEl.textContent=lastGpsDistance==null?'-':Math.round(lastGpsDistance)+' m';
