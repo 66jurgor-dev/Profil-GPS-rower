@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Profil trasy GPS offline v.73</title>
+<title>Profil trasy GPS offline v.74</title>
 <link rel="manifest" href="manifest.json">
 <style>
 :root { --bg:#0f172a; --panel:#111827; --text:#e5e7eb; --muted:#9ca3af; --line:#38bdf8; --accent:#f59e0b; --bad:#ef4444; --ok:#22c55e; }
@@ -218,7 +218,7 @@ label:has(input[type="file"]) {
 </head>
 <body>
 <header>
-  <h1>Profil trasy GPS offline v.73</h1>
+  <h1>Profil trasy GPS offline v.74</h1>
 </header>
 <main>
 <section class="panel">
@@ -1814,6 +1814,17 @@ function forecastStats(){
   }
   return elevationStatsBetweenDist(startDist, endDist);
 }
+function preserveForecastTargetForManualPosition(newMarkerDist){
+  if(!route.length) return;
+  const current = forecastStats();
+  if(!current || !Number.isFinite(current.endDist)) return;
+  const startDist = clamp(newMarkerDist, 0, totalDist);
+  forecastTargetDist = clamp(current.endDist, startDist, totalDist);
+  const width = Math.max(1, viewEnd - viewStart);
+  forecastOffsetRatio = clampForecastRatio((forecastTargetDist - startDist) / width);
+  localStorage.setItem('profilGpsForecastTargetDist', String(forecastTargetDist));
+  localStorage.setItem('profilGpsForecastOffsetRatio', String(forecastOffsetRatio));
+}
 
 function elevationStatsBetweenDist(startDist, endDist){
   if(!route.length) return null;
@@ -2748,13 +2759,13 @@ function endPointer(e){
   activePointers.delete(e.pointerId);
   if(positionDragState && positionDragState.id===e.pointerId){
     positionDragState=null;
-    updateInfo();
+    updateInfo(null, null, true);
     draw();
     return;
   }
   if(forecastDragState && forecastDragState.id===e.pointerId){
     forecastDragState=null;
-    updateInfo();
+    updateInfo(null, null, true);
     draw();
     return;
   }
@@ -2861,6 +2872,10 @@ function setMarkerByDistanceV54(distMeters, source){
   const total = Number.isFinite(totalDist) && totalDist > 0 ? totalDist : route[route.length-1].dist;
   const d = Math.max(0, Math.min(total, Number(distMeters) || 0));
   const idx = nearestRouteIndexByDistanceV54(d);
+  if(source !== "gps" && source !== "reset"){
+    preserveForecastTargetForManualPosition(route[idx].dist);
+    resetEtaDisplaySmoothing();
+  }
 
   markerIdx = idx;
   if(source === "gps"){
@@ -2888,7 +2903,7 @@ function setMarkerByDistanceV54(distMeters, source){
   }
 
   updatePositionSliderV54();
-  if(typeof updateInfo === "function") updateInfo(null, null, source === "gps" && etaDisplayState.seconds === null);
+  if(typeof updateInfo === "function") updateInfo(null, null, source !== "gps" || etaDisplayState.seconds === null);
   if(typeof draw === "function") draw();
 }
 
