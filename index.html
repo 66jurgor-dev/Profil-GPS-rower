@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Profil trasy GPS offline v.51</title>
+<title>Profil trasy GPS offline v.59</title>
 <link rel="manifest" href="manifest.json">
 <style>
 :root { --bg:#0f172a; --panel:#111827; --text:#e5e7eb; --muted:#9ca3af; --line:#38bdf8; --accent:#f59e0b; --bad:#ef4444; --ok:#22c55e; }
@@ -218,7 +218,7 @@ label:has(input[type="file"]) {
 </head>
 <body>
 <header>
-  <h1>Profil trasy GPS offline v.51</h1>
+  <h1>Profil trasy GPS offline v.59</h1>
 </header>
 <main>
 <section class="panel">
@@ -241,10 +241,10 @@ label:has(input[type="file"]) {
   </div>
 <div class="controls">
 <label class="file blue">Wczytaj GPX<input id="file" type="file" accept=".gpx,application/gpx+xml,text/xml"></label>
+<label class="file green">Asfalt<input id="asphaltFile" type="file" accept=".gpx,application/gpx+xml,text/xml"></label>
     <button id="gpsBtn" class="gps-off">GPS</button>
     <button id="fitBtn" class="green">Pokaż całość</button>
     <button id="twoKmBtn" class="green">2 km</button>
-      <button id="yUpBtn" onclick="yUp()" class="green">Y UP</button>
       <button id="yDownBtn" onclick="yDown()" class="green">Y DOWN</button>
     <button id="btnResetCzasu" class="red" onclick="resetCzasuAplikacji()">Reset</button>
   </div>
@@ -303,6 +303,8 @@ const KAL_CHUNK_M = 250;
 let manualLockUntil = 0;
 let manualLockCenterDist = null;
 let gpxNotePoints = [];
+let asphaltIntervals = [];
+let mapFitAll = false;
 const MANUAL_LOCK_MS = 30 * 60 * 1000;
 const MANUAL_LOCK_WINDOW_M = 2500;
 
@@ -465,6 +467,62 @@ function clearGpxNotePoints(){
   gpxNotePoints = [];
 }
 
+function clearAsphaltIntervals(){
+  asphaltIntervals = [];
+}
+
+function isAsphaltDist(dist){
+  if(!Number.isFinite(dist) || !asphaltIntervals.length) return false;
+  return asphaltIntervals.some(seg => dist >= seg.start && dist <= seg.end);
+}
+
+function intervalTouchesAsphalt(start, end){
+  if(!Number.isFinite(start) || !Number.isFinite(end)) return false;
+  return asphaltIntervals.some(seg => end >= seg.start && start <= seg.end);
+}
+
+function buildAsphaltIntervals(points){
+  if(!route.length || !Array.isArray(points) || points.length < 2) return [];
+  const raw = [];
+  let currentStart = null;
+  let prevDist = null;
+
+  for(const p of points){
+    if(!p || !Number.isFinite(p.lat) || !Number.isFinite(p.lon)) continue;
+    const n = nearestGlobal(p.lat, p.lon);
+    if(!n || !Number.isFinite(n.d) || n.d > 80) {
+      if(currentStart !== null && prevDist !== null && prevDist > currentStart) raw.push({start:currentStart, end:prevDist});
+      currentStart = null;
+      prevDist = null;
+      continue;
+    }
+    const d = route[n.idx].dist;
+    if(currentStart === null){
+      currentStart = d;
+      prevDist = d;
+      continue;
+    }
+    if(d < prevDist - 200 || d - prevDist > 1200){
+      if(prevDist > currentStart) raw.push({start:currentStart, end:prevDist});
+      currentStart = d;
+    }
+    prevDist = d;
+  }
+  if(currentStart !== null && prevDist !== null && prevDist > currentStart) raw.push({start:currentStart, end:prevDist});
+
+  raw.sort((a,b)=>a.start-b.start);
+  const merged = [];
+  for(const seg of raw){
+    const start = clamp(Math.min(seg.start, seg.end), 0, totalDist);
+    const end = clamp(Math.max(seg.start, seg.end), 0, totalDist);
+    if(end <= start + 5) continue;
+    const last = merged[merged.length-1];
+    if(last && start <= last.end + 50) last.end = Math.max(last.end, end);
+    else merged.push({start, end});
+  }
+  return merged;
+}
+
 function addGpxNotePoints(notePoints){
   gpxNotePoints = [];
   if(!Array.isArray(notePoints) || !route.length) return;
@@ -583,6 +641,7 @@ function nearestIndexByDistanceMeters(targetDist){
 }
 function prepare(points){
   gpxNotePoints = [];
+  clearAsphaltIntervals();
   route = points.filter(p => Number.isFinite(p.lat) && Number.isFinite(p.lon));
   let d=0;
   for(let i=0;i<route.length;i++){
@@ -799,6 +858,7 @@ function autoScrollAfterMarkerHalf(){
 
 function applyXZoom(newZoom, keepDist=null){
   if(!route.length) return;
+  mapFitAll = false;
   xZoom = clamp(newZoom, 1, 24);
   if(xZoom<=1){ viewStart=0; viewEnd=totalDist; draw(); return; }
 
@@ -816,6 +876,7 @@ function applyXZoom(newZoom, keepDist=null){
 }
 function setViewWidthMeters(widthMeters){
   if(!route.length || !Number.isFinite(widthMeters) || widthMeters <= 0) return;
+  mapFitAll = false;
   const width = Math.min(totalDist || widthMeters, widthMeters);
   if(width >= totalDist){
     xZoom = 1;
@@ -831,6 +892,7 @@ function setViewWidthMeters(widthMeters){
 }
 function setForwardViewMeters(widthMeters){
   if(!route.length || !Number.isFinite(widthMeters) || widthMeters <= 0) return;
+  mapFitAll = false;
   const markerDist = route[markerIdx] ? route[markerIdx].dist : 0;
   const width = Math.min(totalDist || widthMeters, widthMeters);
   if(width >= totalDist){
@@ -1315,15 +1377,7 @@ function draw(){
     const yy=padT+k*(h-padT-padB)/4; ctx.beginPath(); ctx.moveTo(padL,yy); ctx.lineTo(w-padR,yy); ctx.stroke();
     const val=Math.round(maxE-k*(maxE-minE)/4); ctx.fillText(val+' m', 6*devicePixelRatio, yy+7*devicePixelRatio);
   }
-  ctx.beginPath();
-  let started=false;
-  for(let i=0;i<route.length;i++){
-    const p=route[i];
-    if(p.dist<viewStart || p.dist>viewEnd) continue;
-    const xx=x(p), yy=y(p);
-    if(!started){ ctx.moveTo(xx,yy); started=true; } else ctx.lineTo(xx,yy);
-  }
-  ctx.strokeStyle='#38bdf8'; ctx.lineWidth=2.2*devicePixelRatio; ctx.stroke();
+  drawProfileSurfaceLine(x, y);
   drawUserPoints(x, y, padT, padB, w, h);
   const m=route[markerIdx];
   slopeLabelHit = null;
@@ -1331,15 +1385,12 @@ function draw(){
     const mx=x(m), my=y(m);
     const mc = markerColor();
     ctx.strokeStyle=mc; ctx.lineWidth=2.2*devicePixelRatio; ctx.beginPath(); ctx.moveTo(mx,padT); ctx.lineTo(mx,h-padB); ctx.stroke();
-    ctx.fillStyle=mc;
-    ctx.beginPath();
-    ctx.arc(mx,my,8*devicePixelRatio,0,Math.PI*2);
-    ctx.fill();
-    ctx.strokeStyle='#020617'; ctx.lineWidth=2*devicePixelRatio; ctx.stroke();
-    drawSlopeLabelAtMarker(mx, my, padT, h-padB);
-
   }
   drawForecast(x, padL, padT, padB, w, h);
+  if(m.dist>=viewStart && m.dist<=viewEnd){
+    const mx=x(m), my=y(m);
+    drawSlopeLabelAtMarker(mx, my, padT, h-padB);
+  }
   drawDistanceScale(padL, padR, padT, padB, w, h);
 
   // // drawSlopeLabelOverlay();
@@ -1352,6 +1403,77 @@ function draw(){
   updatePositionSliderV54();
 
   drawRouteMap();
+}
+
+function drawProfileSurfaceLine(x, y){
+  const samples = visibleRoute();
+  if(samples.length < 2) return;
+  ctx.lineWidth = 2.2 * devicePixelRatio;
+  ctx.lineJoin = 'round';
+  ctx.lineCap = 'round';
+  function strokeSamples(points, color, widthFactor=1){
+    if(points.length < 2) return;
+    ctx.lineWidth = 2.2 * devicePixelRatio * widthFactor;
+    ctx.beginPath();
+    for(let i=0;i<points.length;i++){
+      const xx = x(points[i]), yy = y(points[i]);
+      if(i === 0) ctx.moveTo(xx, yy);
+      else ctx.lineTo(xx, yy);
+    }
+    ctx.strokeStyle = color;
+    ctx.stroke();
+  }
+
+  strokeSamples(samples, '#22c55e');
+  for(const seg of asphaltIntervals){
+    const s = Math.max(viewStart, seg.start);
+    const e = Math.min(viewEnd, seg.end);
+    if(e <= s + 1) continue;
+    const segSamples = [routeSampleAtDist(s)]
+      .concat(route.filter(p => p.dist > s && p.dist < e))
+      .concat([routeSampleAtDist(e)]);
+    strokeSamples(segSamples, '#94a3b8');
+  }
+
+  let steepRun = [];
+  let steepRunDist = 0;
+  function flushSteepRun(){
+    if(steepRun.length >= 2 && steepRunDist >= 20) strokeSamples(steepRun, '#ef4444', 1.25);
+    steepRun = [];
+    steepRunDist = 0;
+  }
+  for(let i=1;i<samples.length;i++){
+    const a = samples[i-1], b = samples[i];
+    const dd = b.dist - a.dist;
+    const slope = dd > 0 ? 100 * (b.ele - a.ele) / dd : null;
+    const steep = dd > 0 && Math.abs(slope) >= 15 && !intervalTouchesAsphalt(a.dist, b.dist);
+    if(steep){
+      if(!steepRun.length) steepRun.push(a);
+      steepRun.push(b);
+      steepRunDist += dd;
+    } else {
+      flushSteepRun();
+    }
+  }
+  flushSteepRun();
+
+  ctx.save();
+  ctx.strokeStyle = '#ffffff';
+  ctx.lineWidth = 2.4 * devicePixelRatio;
+  for(const seg of asphaltIntervals){
+    for(const d of [seg.start, seg.end]){
+      if(d < viewStart || d > viewEnd) continue;
+      const p = routeSampleAtDist(d);
+      if(!p) continue;
+      const xx = x(p), yy = y(p);
+      const len = 16 * devicePixelRatio;
+      ctx.beginPath();
+      ctx.moveTo(xx, yy - len);
+      ctx.lineTo(xx, yy + len);
+      ctx.stroke();
+    }
+  }
+  ctx.restore();
 }
 
 
@@ -1419,6 +1541,7 @@ function clampForecastRatio(v){
 }
 function setForecastFromClientX(clientX){
   if(!route.length || viewEnd<=viewStart) return;
+  mapFitAll = false;
   const rect=canvas.getBoundingClientRect();
   const xCss=clientX-rect.left;
   const wCss=rect.width;
@@ -1472,6 +1595,9 @@ function drawSlopeLabelAtMarker(x, y, padT, bottom){
   const rightLimit = canvas.width - 20*dpr;
   if(bx < leftLimit) bx = leftLimit;
   if(bx + boxW > rightLimit) bx = rightLimit - boxW;
+  if(forecastLabelHit){
+    by = forecastLabelHit.ly - boxH - 6*dpr;
+  }
   if(by + boxH > bottom - 6*dpr) by = y - boxH - 16*dpr;
   if(by < padT + 6*dpr) by = padT + 6*dpr;
 
@@ -1516,6 +1642,7 @@ function isPositionHandle(clientX, clientY){
 function setPositionFromClientX(clientX){
   if(!canMovePositionManually()) return;
   if(!route.length || viewEnd <= viewStart) return;
+  mapFitAll = false;
   const rect = canvas.getBoundingClientRect();
   const xCss = clientX - rect.left;
   const padL = 76, padR = 18;
@@ -1744,19 +1871,24 @@ function drawRouteMap(){
 
   const dpr = devicePixelRatio || 1;
   const pad = 18 * dpr;
-  const meanLat = route.reduce((sum, p) => sum + p.lat, 0) / route.length;
+  const meanLatBase = route.reduce((sum, p) => sum + p.lat, 0) / route.length;
+  const meanLat = Number.isFinite(lastGpsLat) ? (meanLatBase + lastGpsLat) / 2 : meanLatBase;
   const lonScale = Math.max(0.15, Math.cos(rad(meanLat)));
-  const startDist = clamp(viewStart, 0, totalDist);
-  const endDist = clamp(viewEnd, startDist, totalDist);
+  const startDist = mapFitAll ? 0 : clamp(viewStart, 0, totalDist);
+  const endDist = mapFitAll ? totalDist : clamp(viewEnd, startDist, totalDist);
   const mapRoute = [routeSampleAtDist(startDist)]
     .concat(route.filter(p => p.dist > startDist && p.dist < endDist))
     .concat([routeSampleAtDist(endDist)]);
   const projected = mapRoute
     .filter(p => p && Number.isFinite(p.lat) && Number.isFinite(p.lon))
     .map(p => ({x:p.lon * lonScale, y:p.lat, dist:p.dist}));
+  const boundsProjected = projected.slice();
+  if(mapFitAll && Number.isFinite(lastGpsLat) && Number.isFinite(lastGpsLon)){
+    boundsProjected.push({x:lastGpsLon * lonScale, y:lastGpsLat, dist:null, gps:true});
+  }
   if(projected.length < 2) return;
   let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
-  for(const p of projected){
+  for(const p of boundsProjected){
     minX = Math.min(minX, p.x); maxX = Math.max(maxX, p.x);
     minY = Math.min(minY, p.y); maxY = Math.max(maxY, p.y);
   }
@@ -1770,6 +1902,10 @@ function drawRouteMap(){
   const mapPoint = p => ({
     x: ox + (p.lon * lonScale - minX) * scale,
     y: oy + (maxY - p.lat) * scale
+  });
+  const mapLatLon = (lat, lon) => ({
+    x: ox + (lon * lonScale - minX) * scale,
+    y: oy + (maxY - lat) * scale
   });
   const mapProjected = p => ({
     x: ox + (p.x - minX) * scale,
@@ -1791,7 +1927,18 @@ function drawRouteMap(){
     mctx.stroke();
   }
 
-  strokeRoute(projected, '#38bdf8', 2.2);
+  strokeRoute(projected, '#22c55e', 2.2);
+  for(const seg of asphaltIntervals){
+    const s = Math.max(startDist, seg.start);
+    const e = Math.min(endDist, seg.end);
+    if(e <= s + 1) continue;
+    const segPoints = [routeSampleAtDist(s)]
+      .concat(route.filter(p => p.dist > s && p.dist < e))
+      .concat([routeSampleAtDist(e)])
+      .filter(p => p && Number.isFinite(p.lat) && Number.isFinite(p.lon))
+      .map(p => ({x:p.lon * lonScale, y:p.lat, dist:p.dist}));
+    strokeRoute(segPoints, '#94a3b8', 2.2);
+  }
 
   const points = allVisiblePoints().filter(pt => pt.dist >= startDist && pt.dist <= endDist);
   mctx.font = '700 '+(13*dpr)+'px system-ui';
@@ -1851,6 +1998,19 @@ function drawRouteMap(){
       mctx.fill();
       mctx.stroke();
     }
+  }
+
+  if(Number.isFinite(lastGpsLat) && Number.isFinite(lastGpsLon)){
+    const gp = mapLatLon(lastGpsLat, lastGpsLon);
+    const size = 8 * dpr;
+    mctx.strokeStyle = '#ffffff';
+    mctx.lineWidth = 2.4 * dpr;
+    mctx.beginPath();
+    mctx.moveTo(gp.x - size, gp.y);
+    mctx.lineTo(gp.x + size, gp.y);
+    mctx.moveTo(gp.x, gp.y - size);
+    mctx.lineTo(gp.x, gp.y + size);
+    mctx.stroke();
   }
 }
 
@@ -2020,6 +2180,27 @@ fileInput.addEventListener('change', async e=>{
   }
 });
 }
+
+const asphaltInput = document.getElementById('asphaltFile');
+if(asphaltInput && asphaltInput.dataset.boundAsphalt !== "1"){
+asphaltInput.dataset.boundAsphalt = "1";
+asphaltInput.addEventListener('change', async e=>{
+  const f=e.target.files[0]; if(!f) return;
+  if(!route.length){
+    statusEl.innerHTML='<span class="bad">Najpierw wczytaj główny plik GPX trasy.</span>';
+    return;
+  }
+  try{
+    const data=parseGpxData(await f.text());
+    asphaltIntervals = buildAsphaltIntervals(data.routePoints);
+    draw();
+    const km = asphaltIntervals.reduce((sum, seg)=>sum + Math.max(0, seg.end-seg.start), 0) / 1000;
+    statusEl.innerHTML='<span class="ok">Wczytano asfalt: '+escapeHtml(f.name)+'. Odcinki asfaltowe: '+km.toFixed(2)+' km.</span>';
+  }catch(err){
+    statusEl.innerHTML='<span class="bad">Błąd wczytywania asfaltu: '+escapeHtml(err.message || String(err))+'</span>';
+  }
+});
+}
 const gpsButton = document.getElementById('gpsBtn');
 if(gpsButton && gpsButton.dataset.boundGpsV54 !== "1"){
 gpsButton.dataset.boundGpsV54 = "1";
@@ -2057,7 +2238,7 @@ gpsButton.addEventListener('click', ()=>{
   updateGpsButtonState();
 });
 }
-document.getElementById('fitBtn').addEventListener('click', ()=>{ xZoom=1; yStretch=1; viewStart=0; viewEnd=totalDist; draw(); });
+document.getElementById('fitBtn').addEventListener('click', ()=>{ xZoom=1; yStretch=1; viewStart=0; viewEnd=totalDist; mapFitAll=true; draw(); });
 document.getElementById('twoKmBtn').addEventListener('click', ()=>{ setForwardViewMeters(2000); });
 canvas.addEventListener('wheel', e=>{
   e.preventDefault();
@@ -2162,26 +2343,15 @@ canvas.addEventListener('pointerup', endPointer);
 canvas.addEventListener('pointercancel', endPointer);
 
 
-function yUp(){
-  if(typeof yStretch === "undefined" || !Number.isFinite(yStretch) || yStretch <= 0) yStretch = 1;
-  yStretch = Math.min(64, yStretch * 1.35);
-  draw();
-}
-
 function yDown(){
   if(typeof yStretch === "undefined" || !Number.isFinite(yStretch) || yStretch <= 0) yStretch = 1;
+  mapFitAll = false;
   yStretch = Math.max(0.05, yStretch / 1.35);
   draw();
 }
 
 function bindYButtons(){
-  const up = document.getElementById("yUpBtn");
   const down = document.getElementById("yDownBtn");
-
-  if(up && up.dataset.boundY !== "1"){
-    up.dataset.boundY = "1";
-    up.addEventListener("click", yUp);
-  }
 
   if(down && down.dataset.boundY !== "1"){
     down.dataset.boundY = "1";
@@ -2513,6 +2683,7 @@ function parseGpxTextV54(text){
 }
 
 function applyRouteV54(points, waypoints, sourceName){
+  clearAsphaltIntervals();
   route = points;
   totalDist = cumulativeRouteV54(route);
 
