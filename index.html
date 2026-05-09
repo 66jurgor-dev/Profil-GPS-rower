@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Profil trasy GPS offline v.61</title>
+<title>Profil trasy GPS offline v.71</title>
 <link rel="manifest" href="manifest.json">
 <style>
 :root { --bg:#0f172a; --panel:#111827; --text:#e5e7eb; --muted:#9ca3af; --line:#38bdf8; --accent:#f59e0b; --bad:#ef4444; --ok:#22c55e; }
@@ -20,7 +20,7 @@ main { padding:10px; display:grid; gap:10px; }
 button, label.file { color:var(--text); border:1px solid #374151; padding:9px 11px; border-radius:10px; font-size:14px; }
 button.blue, label.file.blue { background:#2563eb; border-color:#1d4ed8; }
 button.green { background:#16a34a; border-color:#15803d; }
-button.orange { background:#f59e0b; border-color:#d97706; color:#111827; font-weight:700; }
+button.orange, label.file.orange { background:#f59e0b; border-color:#d97706; color:#111827; font-weight:700; }
 button.red { background:#dc2626; border-color:#b91c1c; }
 #gpsBtn.gps-on { background:#2563eb; border-color:#1d4ed8; color:#fff; }
 #gpsBtn.gps-off { background:#6b7280; border-color:#4b5563; color:#fff; }
@@ -218,7 +218,7 @@ label:has(input[type="file"]) {
 </head>
 <body>
 <header>
-  <h1>Profil trasy GPS offline v.61</h1>
+  <h1>Profil trasy GPS offline v.71</h1>
 </header>
 <main>
 <section class="panel">
@@ -242,6 +242,7 @@ label:has(input[type="file"]) {
   <div class="controls">
     <label class="file blue">Wczytaj GPX<input id="file" type="file" accept=".gpx,application/gpx+xml,text/xml"></label>
     <label class="file green">Asfalt<input id="asphaltFile" type="file" accept=".gpx,application/gpx+xml,text/xml"></label>
+    <label class="file orange">DANE<input id="historyFiles" type="file" accept=".gpx,application/gpx+xml,text/xml" multiple></label>
     <button id="gpsBtn" class="gps-off">GPS</button>
   </div>
   <div class="controls">
@@ -250,11 +251,14 @@ label:has(input[type="file"]) {
   </div>
   <div class="controls mode-controls">
     <button id="etaModeMan" class="mode-btn" type="button">MAN</button>
-    <button id="etaModeSim" class="mode-btn" type="button">SIM</button>
     <button id="etaModeKal" class="mode-btn" type="button">KAL</button>
   </div>
   <div class="controls">
     <button id="btnResetCzasu" class="red" onclick="resetCzasuAplikacji()">Reset</button>
+  </div>
+  <div class="controls">
+    <button id="testBtn" class="orange" type="button">TEST</button>
+    <input id="testFile" type="file" accept=".gpx,application/gpx+xml,text/xml">
   </div>
 </section>
 </main>
@@ -297,19 +301,38 @@ let roughTrack = {signature:null, dist:0, points:[]};
 const ROUGH_KEY = 'profilGpsRoughTrackV12';
 let speedHistory = {signature:null, points:[]};
 const SPEED_KEY = 'profilGpsSpeedHistoryV1';
-let etaMode = 'SIM';
+const HIST_KAL_KEY = 'profilGpsHistoricalKalV1';
+let historicalKalModel = null;
+let etaMode = 'MAN';
 let simpleEtaStart = {t:Date.now(), dist:0};
 let simpleEtaCurrent = {t:null, dist:0, hasReal:false};
 const KAL_UP_SLOPE = 2;
 const KAL_DOWN_SLOPE = -2;
 const KAL_CHUNK_M = 250;
+const KAL_FINE_MIN_COUNT = 2;
+const KAL_GROUP_KEYS = ['up','flat','down'];
+const KAL_FINE_BUCKETS = [
+  {key:'d3', group:'down', min:-Infinity, max:-8},
+  {key:'d2', group:'down', min:-8, max:-4},
+  {key:'d1', group:'down', min:-4, max:KAL_DOWN_SLOPE},
+  {key:'p', group:'flat', min:KAL_DOWN_SLOPE, max:KAL_UP_SLOPE},
+  {key:'g1', group:'up', min:KAL_UP_SLOPE, max:5},
+  {key:'g2', group:'up', min:5, max:8},
+  {key:'g3', group:'up', min:8, max:12},
+  {key:'g4', group:'up', min:12, max:Infinity}
+];
+const KAL_FINE_KEYS = KAL_FINE_BUCKETS.map(bucket => bucket.key);
 let manualLockUntil = 0;
 let manualLockCenterDist = null;
 let gpxNotePoints = [];
 let asphaltIntervals = [];
 let mapFitAll = false;
+let testPlayback = {timer:null, points:[], idx:0, speed:30};
+let etaDisplayState = {lastUpdate:0, samples:[], seconds:null, baseTime:0};
 const MANUAL_LOCK_MS = 30 * 60 * 1000;
 const MANUAL_LOCK_WINDOW_M = 2500;
+const ETA_DISPLAY_UPDATE_MS = 60 * 1000;
+const ETA_DISPLAY_MAX_SAMPLES = 120;
 
 function formatCoordValue(value, digitsBefore){
   if(!Number.isFinite(value)) return '-';
@@ -410,27 +433,46 @@ function loadSpeedHistory(){
 function saveSpeedHistory(){
   try{ localStorage.setItem(SPEED_KEY, JSON.stringify(speedHistory)); }catch(e){}
 }
-function setSimpleEtaBaseline(dist=null){
+function loadHistoricalKalModel(){
+  try{
+    const raw = localStorage.getItem(HIST_KAL_KEY);
+    if(!raw) return null;
+    const parsed = JSON.parse(raw);
+    if(!parsed || !parsed.groupStats || !parsed.fineStats) return null;
+    return parsed;
+  }catch(e){
+    return null;
+  }
+}
+function saveHistoricalKalModel(){
+  try{
+    if(historicalKalModel) localStorage.setItem(HIST_KAL_KEY, JSON.stringify(historicalKalModel));
+    else localStorage.removeItem(HIST_KAL_KEY);
+  }catch(e){}
+}
+function setSimpleEtaBaseline(dist=null, timeOverride=null){
   const baseDist = dist === null && route[markerIdx] ? route[markerIdx].dist : dist;
   const d = clamp(Number(baseDist) || 0, 0, totalDist || 0);
+  const now = Number.isFinite(timeOverride) ? timeOverride : Date.now();
   simpleEtaStart = {
-    t:Date.now(),
+    t:now,
     dist:d
   };
   simpleEtaCurrent = {t:null, dist:d, hasReal:false};
 }
-function recordSimpleEtaRealPosition(dist){
+function recordSimpleEtaRealPosition(dist, timeOverride=null){
   if(!route.length || !Number.isFinite(dist)) return;
+  const now = Number.isFinite(timeOverride) ? timeOverride : Date.now();
   simpleEtaCurrent = {
-    t:Date.now(),
+    t:now,
     dist:clamp(dist, 0, totalDist || 0),
     hasReal:true
   };
 }
-function recordSpeedPosition(dist, source='gps'){
+function recordSpeedPosition(dist, source='gps', timeOverride=null){
   if(!route.length || !Number.isFinite(dist)) return;
   if(speedHistory.signature !== currentRouteSignature()) loadSpeedHistory();
-  const now = Date.now();
+  const now = Number.isFinite(timeOverride) ? timeOverride : Date.now();
   dist = clamp(dist, 0, totalDist);
   const last = speedHistory.points.length ? speedHistory.points[speedHistory.points.length-1] : null;
 
@@ -447,6 +489,7 @@ function recordSpeedPosition(dist, source='gps'){
     if(last){
       const dt = (now - last.t) / 1000;
       const dd = dist - last.dist;
+      if(dt < 30) return;
       if(Math.abs(dd) < 20 && dt < 180) return;
       if(dd < -300) return;
       if(dd > 8000) return;
@@ -562,14 +605,15 @@ function resetRoughTrack(dist=0){
     roughTrack.points.push({lat:lastGpsLat, lon:lastGpsLon, t:Date.now(), dist:roughTrack.dist});
   }
   saveRoughTrack();
-  updateInfo();
+  updateInfo(null, null, true);
 }
 function resetCzasuAplikacji(){
   if(!route.length) return;
 
   speedHistory = {signature:currentRouteSignature(), points:[]};
   saveSpeedHistory();
-  etaMode = 'SIM';
+  etaMode = calibrationModelReady() ? 'KAL' : 'MAN';
+  resetEtaDisplaySmoothing();
 
   let resetSource = 'manual';
   let gpsDistance = null;
@@ -595,7 +639,7 @@ function resetCzasuAplikacji(){
   resetRoughTrack(route[markerIdx].dist);
   recordSpeedPosition(route[markerIdx].dist, 'reset');
   keepMarkerVisible();
-  updateInfo(gpsDistance, lastGpsAccuracy);
+  updateInfo(gpsDistance, lastGpsAccuracy, true);
   draw();
 
   statusEl.textContent = resetSource === 'gps'
@@ -677,6 +721,7 @@ function prepare(points){
   forecastTargetDist=NaN;
   localStorage.removeItem('profilGpsForecastTargetDist');
   setSimpleEtaBaseline(route[markerIdx] ? route[markerIdx].dist : 0);
+  resetEtaDisplaySmoothing();
 
   if(sim) sim.value = route.length > 1 ? Math.round(1000*markerIdx/(route.length-1)) : 0;
   updateInfo();
@@ -697,6 +742,21 @@ function bestPointLabel(node){
     return parts[1];
   }
   return label;
+}
+function parseGpxTrackWithTime(text){
+  const xml = new DOMParser().parseFromString(text, 'application/xml');
+  const trackNodes = [...xml.getElementsByTagName('trkpt'), ...xml.getElementsByTagName('rtept')];
+  return trackNodes.map(n => {
+    const timeText = childText(n, 'time');
+    const t = timeText ? Date.parse(timeText) : NaN;
+    return {
+      lat:parseFloat(n.getAttribute('lat')),
+      lon:parseFloat(n.getAttribute('lon')),
+      ele:parseFloat((n.getElementsByTagName('ele')[0]||{}).textContent),
+      t
+    };
+  }).filter(p => Number.isFinite(p.lat) && Number.isFinite(p.lon) && Number.isFinite(p.t))
+    .sort((a,b)=>a.t-b.t);
 }
 function parseGpxData(text){
   autoYActive = false;
@@ -972,6 +1032,11 @@ function formatArrivalTime(seconds){
   const target = new Date(Date.now() + seconds * 1000);
   return formatClock(target);
 }
+function formatArrivalTimeFromBase(seconds, baseTime){
+  if(seconds === null || !Number.isFinite(seconds) || seconds < 0) return '-';
+  const base = Number.isFinite(baseTime) && baseTime > 0 ? baseTime : Date.now();
+  return formatClock(new Date(base + seconds * 1000));
+}
 function formatDuration(seconds){
   if(seconds === null || !Number.isFinite(seconds) || seconds < 0) return '-';
   const totalMinutes = Math.ceil(seconds / 60);
@@ -979,6 +1044,26 @@ function formatDuration(seconds){
   const m = totalMinutes % 60;
   if(h <= 0) return m + ' min';
   return h + ':' + String(m).padStart(2, '0') + ' h';
+}
+function smoothedEtaSeconds(force=false){
+  const seconds = etaToForecastSeconds();
+  const now = Date.now();
+  if(seconds !== null && Number.isFinite(seconds) && seconds >= 0){
+    etaDisplayState.samples.push(seconds);
+    if(etaDisplayState.samples.length > ETA_DISPLAY_MAX_SAMPLES) etaDisplayState.samples.shift();
+  }
+  const due = force || etaDisplayState.seconds === null || now - etaDisplayState.lastUpdate >= ETA_DISPLAY_UPDATE_MS;
+  if(due){
+    const samples = etaDisplayState.samples.filter(v => Number.isFinite(v) && v >= 0);
+    etaDisplayState.seconds = samples.length ? samples.reduce((sum, v) => sum + v, 0) / samples.length : seconds;
+    etaDisplayState.baseTime = now;
+    etaDisplayState.lastUpdate = now;
+    etaDisplayState.samples = [];
+  }
+  return etaDisplayState.seconds;
+}
+function resetEtaDisplaySmoothing(){
+  etaDisplayState = {lastUpdate:0, samples:[], seconds:null, baseTime:0};
 }
 function formatMeters(value){
   if(value === null || !Number.isFinite(value)) return '-';
@@ -997,13 +1082,36 @@ function manualSpeedMps(){
   return kmh === null ? null : kmh / 3.6;
 }
 function simpleSpeedKmh(){
-  if(!route.length || !simpleEtaStart || !simpleEtaCurrent || !simpleEtaCurrent.hasReal) return null;
-  const elapsedH = (simpleEtaCurrent.t - simpleEtaStart.t) / 3600000;
-  const distKm = (simpleEtaCurrent.dist - simpleEtaStart.dist) / 1000;
+  const direct = simpleSpeedFromPoints(simpleEtaStart, simpleEtaCurrent && simpleEtaCurrent.hasReal ? simpleEtaCurrent : null);
+  if(direct !== null) return direct;
+  return simpleSpeedFromHistory();
+}
+function simpleSpeedFromPoints(start, end){
+  if(!route.length || !start || !end) return null;
+  const elapsedH = (end.t - start.t) / 3600000;
+  const distKm = (end.dist - start.dist) / 1000;
   if(!Number.isFinite(elapsedH) || !Number.isFinite(distKm) || elapsedH <= 1/120 || distKm <= 0.02) return null;
   const kmh = distKm / elapsedH;
   if(!Number.isFinite(kmh) || kmh <= 0 || kmh > 120) return null;
   return kmh;
+}
+function simpleSpeedFromHistory(){
+  if(!speedHistory || !Array.isArray(speedHistory.points) || speedHistory.points.length < 2) return null;
+  let start = null;
+  for(let i=speedHistory.points.length-1; i>=0; i--){
+    const p = speedHistory.points[i];
+    if(p && (p.source === 'reset' || p.source === 'gps')){
+      start = p;
+      if(p.source === 'reset') break;
+    }
+  }
+  if(!start) start = speedHistory.points[0];
+  let end = null;
+  for(let i=speedHistory.points.length-1; i>=0; i--){
+    const p = speedHistory.points[i];
+    if(p && p.source === 'gps'){ end = p; break; }
+  }
+  return simpleSpeedFromPoints(start, end);
 }
 function appSpeedKmh(){
   if(!speedHistory || !Array.isArray(speedHistory.points) || speedHistory.points.length < 2) return null;
@@ -1039,25 +1147,41 @@ function slopePercentBetweenDist(startDist, endDist){
   if(e1 === null || e2 === null || !Number.isFinite(e1) || !Number.isFinite(e2)) return null;
   return 100 * (e2 - e1) / span;
 }
-function kalBucketForSlope(slope){
+function kalFineBucketForSlope(slope){
   if(slope === null || !Number.isFinite(slope)) return null;
-  if(slope > KAL_UP_SLOPE) return 'up';
-  if(slope < KAL_DOWN_SLOPE) return 'down';
-  return 'flat';
+  if(slope < -8) return 'd3';
+  if(slope < -4) return 'd2';
+  if(slope < KAL_DOWN_SLOPE) return 'd1';
+  if(slope <= KAL_UP_SLOPE) return 'p';
+  if(slope <= 5) return 'g1';
+  if(slope <= 8) return 'g2';
+  if(slope <= 12) return 'g3';
+  return 'g4';
 }
-function emptyKalBuckets(){
-  return {
-    up:{distKm:0, hours:0, count:0},
-    flat:{distKm:0, hours:0, count:0},
-    down:{distKm:0, hours:0, count:0}
-  };
+function kalGroupForFineBucket(fineKey){
+  const bucket = KAL_FINE_BUCKETS.find(item => item.key === fineKey);
+  return bucket ? bucket.group : null;
 }
-function emptyKalStats(){
-  return {
-    up:{distKm:0, hours:0, count:0, speeds:[]},
-    flat:{distKm:0, hours:0, count:0, speeds:[]},
-    down:{distKm:0, hours:0, count:0, speeds:[]}
-  };
+function kalBucketForSlope(slope){
+  return kalGroupForFineBucket(kalFineBucketForSlope(slope));
+}
+function makeKalDistanceBucket(){
+  return {distKm:0, hours:0, count:0};
+}
+function makeKalStatsBucket(){
+  return {distKm:0, hours:0, count:0, speeds:[]};
+}
+function emptyKalBuckets(keys=KAL_GROUP_KEYS){
+  return keys.reduce((acc, key) => {
+    acc[key] = makeKalDistanceBucket();
+    return acc;
+  }, {});
+}
+function emptyKalStats(keys=KAL_GROUP_KEYS){
+  return keys.reduce((acc, key) => {
+    acc[key] = makeKalStatsBucket();
+    return acc;
+  }, {});
 }
 function kalSegmentAllowed(a, b){
   if(!a || !b) return false;
@@ -1066,7 +1190,8 @@ function kalSegmentAllowed(a, b){
 }
 function kalBucketSpeeds(){
   if(!speedHistory || !Array.isArray(speedHistory.points) || speedHistory.points.length < 2) return null;
-  const buckets = emptyKalStats();
+  const fineBuckets = emptyKalStats(KAL_FINE_KEYS);
+  const groupBuckets = emptyKalStats(KAL_GROUP_KEYS);
   let validCount = 0;
 
   for(let i=1; i<speedHistory.points.length; i++){
@@ -1079,45 +1204,239 @@ function kalBucketSpeeds(){
     const speed = ddKm / dtH;
     if(!Number.isFinite(speed) || speed <= 0 || speed > 120) continue;
     const slope = slopePercentBetweenDist(a.dist, b.dist);
-    const bucket = kalBucketForSlope(slope);
-    if(!bucket) continue;
-    buckets[bucket].distKm += ddKm;
-    buckets[bucket].hours += dtH;
-    buckets[bucket].count += 1;
-    buckets[bucket].speeds.push(speed);
-    validCount += 1;
+    const fineKey = kalFineBucketForSlope(slope);
+    const groupKey = kalGroupForFineBucket(fineKey);
+    if(!fineKey || !groupKey) continue;
+    if(addKalMeasurement(fineBuckets, groupBuckets, fineKey, ddKm, dtH, speed)) validCount += 1;
   }
 
   if(validCount <= 0) return null;
-  const result = {up:null, flat:null, down:null, buckets, count:validCount};
-  for(const key of ['up','flat','down']){
-    const b = buckets[key];
-    if(b.hours > 0 && b.distKm > 0){
-      const kmh = b.distKm / b.hours;
-      if(Number.isFinite(kmh) && kmh > 0 && kmh <= 120) result[key] = kmh;
-    }
+  return buildKalModelFromBuckets(fineBuckets, groupBuckets, {count:validCount, source:'ride'});
+}
+function kalStatsFromBucket(bucket){
+  const speeds = bucket && Array.isArray(bucket.speeds) ? bucket.speeds : [];
+  let mean = null;
+  if(bucket && bucket.hours > 0 && bucket.distKm > 0){
+    const kmh = bucket.distKm / bucket.hours;
+    if(Number.isFinite(kmh) && kmh > 0 && kmh <= 120) mean = kmh;
+  }
+  let sd = null;
+  if(speeds.length >= 2 && mean !== null && Number.isFinite(mean)){
+    const variance = speeds.reduce((sum, v) => sum + Math.pow(v - mean, 2), 0) / (speeds.length - 1);
+    sd = Math.sqrt(variance);
+    if(!Number.isFinite(sd)) sd = null;
+  }
+  return {mean, sd, count:speeds.length};
+}
+function addKalMeasurement(fineBuckets, groupBuckets, fineKey, distKm, hours, speed){
+  const groupKey = kalGroupForFineBucket(fineKey);
+  if(!fineKey || !groupKey || !fineBuckets[fineKey] || !groupBuckets[groupKey]) return false;
+  for(const bucket of [fineBuckets[fineKey], groupBuckets[groupKey]]){
+    bucket.distKm += distKm;
+    bucket.hours += hours;
+    bucket.count += 1;
+    bucket.speeds.push(speed);
+  }
+  return true;
+}
+function buildKalModelFromBuckets(fineBuckets, groupBuckets, extra={}){
+  const result = Object.assign({
+    up:null,
+    flat:null,
+    down:null,
+    fineBuckets,
+    groupBuckets,
+    buckets:groupBuckets,
+    fineStats:{},
+    groupStats:{},
+    count:0
+  }, extra);
+  for(const key of KAL_FINE_KEYS) result.fineStats[key] = kalStatsFromBucket(fineBuckets[key]);
+  for(const key of KAL_GROUP_KEYS){
+    result.groupStats[key] = kalStatsFromBucket(groupBuckets[key]);
+    result[key] = result.groupStats[key].mean;
   }
   return result;
 }
-function kalBucketSpeedStats(){
-  const model = kalBucketSpeeds();
-  if(!model) return null;
-  const stats = {};
-  for(const key of ['up','flat','down']){
-    const bucket = model.buckets[key];
-    const speeds = bucket && Array.isArray(bucket.speeds) ? bucket.speeds : [];
-    const mean = model[key];
-    let sd = null;
-    if(speeds.length >= 2 && mean !== null && Number.isFinite(mean)){
-      const variance = speeds.reduce((sum, v) => sum + Math.pow(v - mean, 2), 0) / (speeds.length - 1);
-      sd = Math.sqrt(variance);
-      if(!Number.isFinite(sd)) sd = null;
-    }
-    stats[key] = {mean, sd, count:speeds.length};
+function prepareTimedTrackForHistory(points){
+  const clean = (points || [])
+    .filter(p => Number.isFinite(p.lat) && Number.isFinite(p.lon) && Number.isFinite(p.t))
+    .sort((a,b)=>a.t-b.t)
+    .map(p => ({lat:p.lat, lon:p.lon, ele:Number.isFinite(p.ele) ? p.ele : null, t:p.t, dist:0}));
+  let d = 0;
+  for(let i=1; i<clean.length; i++){
+    d += hav(clean[i-1], clean[i]);
+    clean[i].dist = d;
   }
-  return stats;
+  return clean;
 }
-function formatKalSpeeds(model=kalBucketSpeeds()){
+function timedTrackSampleAtDist(points, dist){
+  if(!points.length) return null;
+  if(dist <= 0) return points[0];
+  const last = points[points.length - 1];
+  if(dist >= last.dist) return last;
+  for(let i=1; i<points.length; i++){
+    const a = points[i-1], b = points[i];
+    if(b.dist < dist) continue;
+    const span = b.dist - a.dist;
+    const r = span > 0 ? (dist - a.dist) / span : 0;
+    return {
+      lat:a.lat + (b.lat - a.lat) * r,
+      lon:a.lon + (b.lon - a.lon) * r,
+      ele:Number.isFinite(a.ele) && Number.isFinite(b.ele) ? a.ele + (b.ele - a.ele) * r : null,
+      t:a.t + (b.t - a.t) * r,
+      dist
+    };
+  }
+  return last;
+}
+function buildHistoricalKalModelFromTracks(tracks, names=[]){
+  const fineBuckets = emptyKalStats(KAL_FINE_KEYS);
+  const groupBuckets = emptyKalStats(KAL_GROUP_KEYS);
+  let validCount = 0;
+  let totalKm = 0;
+  let totalHours = 0;
+  for(const rawTrack of tracks){
+    const pts = prepareTimedTrackForHistory(rawTrack);
+    if(pts.length < 2) continue;
+    const trackDist = pts[pts.length - 1].dist;
+    for(let d=0; d < trackDist - 20; d += KAL_CHUNK_M){
+      const a = timedTrackSampleAtDist(pts, d);
+      const b = timedTrackSampleAtDist(pts, Math.min(trackDist, d + KAL_CHUNK_M));
+      if(!a || !b) continue;
+      const dtH = (b.t - a.t) / 3600000;
+      const ddM = b.dist - a.dist;
+      const ddKm = ddM / 1000;
+      if(!Number.isFinite(dtH) || !Number.isFinite(ddKm) || dtH <= 1/3600 || dtH > 0.5 || ddKm <= 0.02) continue;
+      const speed = ddKm / dtH;
+      if(!Number.isFinite(speed) || speed <= 0 || speed > 120) continue;
+      if(!Number.isFinite(a.ele) || !Number.isFinite(b.ele) || ddM <= 1) continue;
+      const slope = 100 * (b.ele - a.ele) / ddM;
+      const fineKey = kalFineBucketForSlope(slope);
+      if(addKalMeasurement(fineBuckets, groupBuckets, fineKey, ddKm, dtH, speed)){
+        validCount += 1;
+        totalKm += ddKm;
+        totalHours += dtH;
+      }
+    }
+  }
+  if(validCount <= 0 || totalHours <= 0) return null;
+  return buildKalModelFromBuckets(fineBuckets, groupBuckets, {
+    source:'history',
+    files:names.slice(0, 5),
+    count:validCount,
+    avgSpeed:totalKm / totalHours,
+    totalKm,
+    totalHours,
+    createdAt:Date.now()
+  });
+}
+function routeSecondsWithModel(startDist, endDist, model, scale=1){
+  const routeBuckets = routeKalBucketsBetweenDist(startDist, endDist);
+  if(!model || !routeBuckets) return null;
+  let hours = 0;
+  for(const key of KAL_FINE_KEYS){
+    const distKm = routeBuckets[key].distKm;
+    if(distKm <= 0) continue;
+    const resolved = kalResolvedSpeedForFineBucket(model, key);
+    const kmh = resolved ? resolved.kmh * scale : null;
+    if(kmh === null || !Number.isFinite(kmh) || kmh <= 0) return null;
+    hours += distKm / kmh;
+  }
+  return hours * 3600;
+}
+function historicalKalScale(){
+  if(!historicalKalModel || !route.length) return 1;
+  const simple = simpleSpeedKmh();
+  if(simple === null || !Number.isFinite(simple) || simple <= 0) return 1;
+  const start = simpleEtaStart && Number.isFinite(simpleEtaStart.dist) ? simpleEtaStart.dist : 0;
+  const end = simpleEtaCurrent && simpleEtaCurrent.hasReal && Number.isFinite(simpleEtaCurrent.dist)
+    ? simpleEtaCurrent.dist
+    : (route[markerIdx] ? route[markerIdx].dist : start);
+  const riddenKm = Math.max(0, end - start) / 1000;
+  let expected = null;
+  if(riddenKm >= 0.2){
+    const seconds = routeSecondsWithModel(start, end, historicalKalModel, 1);
+    if(seconds !== null && seconds > 0) expected = riddenKm / (seconds / 3600);
+  }
+  if(expected === null || !Number.isFinite(expected) || expected <= 0) expected = historicalKalModel.avgSpeed;
+  if(expected === null || !Number.isFinite(expected) || expected <= 0) return 1;
+  return clamp(simple / expected, 0.35, 2.5);
+}
+function scaledHistoricalKalModel(){
+  if(!historicalKalModel) return null;
+  const scale = historicalKalScale();
+  const cloneStats = source => {
+    const stats = {};
+    for(const key of Object.keys(source || {})){
+      const s = source[key] || {};
+      stats[key] = {
+        mean:Number.isFinite(s.mean) && s.mean !== null ? s.mean * scale : null,
+        sd:Number.isFinite(s.sd) && s.sd !== null ? s.sd * scale : null,
+        count:s.count || 0,
+        modelSource:'history-scaled'
+      };
+    }
+    return stats;
+  };
+  const model = Object.assign({}, historicalKalModel, {
+    source:'history-scaled',
+    scale,
+    fineStats:cloneStats(historicalKalModel.fineStats),
+    groupStats:cloneStats(historicalKalModel.groupStats)
+  });
+  for(const key of KAL_GROUP_KEYS) model[key] = model.groupStats[key] ? model.groupStats[key].mean : null;
+  return model;
+}
+function activeKalModel(){
+  return scaledHistoricalKalModel() || kalBucketSpeeds();
+}
+function kalBucketSpeedStats(){
+  const model = activeKalModel();
+  if(!model) return null;
+  for(const s of Object.values(model.fineStats || {})) if(s) s.modelSource = model.source || 'ride';
+  for(const s of Object.values(model.groupStats || {})) if(s) s.modelSource = model.source || 'ride';
+  return {
+    fine:model.fineStats,
+    groups:model.groupStats,
+    up:model.groupStats.up,
+    flat:model.groupStats.flat,
+    down:model.groupStats.down
+  };
+}
+function kalResolvedSpeedForFineBucket(model, fineKey){
+  if(!model || !fineKey) return null;
+  const fine = model.fineStats && model.fineStats[fineKey];
+  if(fine && fine.count >= KAL_FINE_MIN_COUNT && fine.mean !== null && Number.isFinite(fine.mean)){
+    return {kmh:fine.mean, stats:fine, source:'fine'};
+  }
+  const groupKey = kalGroupForFineBucket(fineKey);
+  const group = groupKey && model.groupStats ? model.groupStats[groupKey] : null;
+  if(group && group.mean !== null && Number.isFinite(group.mean)){
+    return {kmh:group.mean, stats:group, source:'group'};
+  }
+  if(Number.isFinite(model.avgSpeed) && model.avgSpeed > 0){
+    return {kmh:model.avgSpeed, stats:{mean:model.avgSpeed, sd:null, count:0}, source:'average'};
+  }
+  return null;
+}
+function kalResolvedStatsForFineBucket(stats, fineKey){
+  if(!stats || !fineKey) return null;
+  const fine = stats.fine && stats.fine[fineKey];
+  if(fine && fine.count >= KAL_FINE_MIN_COUNT && fine.mean !== null && fine.sd !== null) return fine;
+  const groupKey = kalGroupForFineBucket(fineKey);
+  return groupKey && stats.groups ? stats.groups[groupKey] : null;
+}
+function kalSpeedUncertaintyForStats(stats){
+  if(!stats || stats.mean === null || stats.sd === null) return null;
+  if(!Number.isFinite(stats.mean) || !Number.isFinite(stats.sd) || stats.mean <= 0 || stats.sd < 0) return null;
+  const count = Number.isFinite(stats.count) ? Math.max(1, stats.count) : 1;
+  if(stats.modelSource === 'history' || stats.modelSource === 'history-scaled'){
+    return stats.sd / Math.sqrt(count);
+  }
+  return stats.sd;
+}
+function formatKalSpeeds(model=activeKalModel()){
   if(!model) return '-';
   const part = key => model[key] === null ? '-' : model[key].toFixed(1);
   return part('up') + ' | ' + part('flat') + ' | ' + part('down');
@@ -1129,40 +1448,40 @@ function formatTripleSpeed(kmh){
 }
 function formatModeSpeeds(){
   if(etaMode === 'MAN') return formatTripleSpeed(manualSpeedKmh());
-  if(etaMode === 'SIM') return formatTripleSpeed(simpleSpeedKmh());
   return formatKalSpeeds();
 }
 function routeKalBucketsBetweenDist(startDist, endDist){
   if(!route.length) return null;
   startDist = clamp(startDist, 0, totalDist);
   endDist = clamp(endDist, 0, totalDist);
-  if(endDist <= startDist + 1) return emptyKalBuckets();
+  if(endDist <= startDist + 1) return emptyKalBuckets(KAL_FINE_KEYS);
 
-  const buckets = emptyKalBuckets();
+  const buckets = emptyKalBuckets(KAL_FINE_KEYS);
   let d = startDist;
   while(d < endDist - 0.5){
     const next = Math.min(endDist, d + KAL_CHUNK_M);
     const spanKm = (next - d) / 1000;
-    const bucket = kalBucketForSlope(slopePercentBetweenDist(d, next));
-    if(bucket && spanKm > 0){
-      buckets[bucket].distKm += spanKm;
-      buckets[bucket].count += 1;
+    const fineKey = kalFineBucketForSlope(slopePercentBetweenDist(d, next));
+    if(fineKey && spanKm > 0){
+      buckets[fineKey].distKm += spanKm;
+      buckets[fineKey].count += 1;
     }
     d = next;
   }
   return buckets;
 }
 function kalEtaSecondsBetweenDist(startDist, endDist){
-  const speeds = kalBucketSpeeds();
+  const speeds = activeKalModel();
   const routeBuckets = routeKalBucketsBetweenDist(startDist, endDist);
   if(!speeds || !routeBuckets) return null;
 
   const fallback = simpleSpeedKmh() ?? manualSpeedKmh();
   let hours = 0;
-  for(const key of ['up','flat','down']){
+  for(const key of KAL_FINE_KEYS){
     const distKm = routeBuckets[key].distKm;
     if(distKm <= 0) continue;
-    const kmh = speeds[key] ?? fallback;
+    const resolved = kalResolvedSpeedForFineBucket(speeds, key);
+    const kmh = resolved ? resolved.kmh : fallback;
     if(kmh === null || !Number.isFinite(kmh) || kmh <= 0) return null;
     hours += distKm / kmh;
   }
@@ -1176,13 +1495,14 @@ function kalTimeSpreadSecondsBetweenDist(startDist, endDist){
 
   let varianceHours = 0;
   let used = false;
-  for(const key of ['up','flat','down']){
+  for(const key of KAL_FINE_KEYS){
     const distKm = routeBuckets[key].distKm;
-    const s = stats[key];
+    const s = kalResolvedStatsForFineBucket(stats, key);
     if(!s || distKm <= 0 || s.mean === null || s.sd === null) continue;
-    if(!Number.isFinite(s.mean) || !Number.isFinite(s.sd) || s.mean <= 0 || s.sd < 0) continue;
+    const speedUncertainty = kalSpeedUncertaintyForStats(s);
+    if(speedUncertainty === null) continue;
     const dtdv = distKm / (s.mean * s.mean);
-    varianceHours += Math.pow(dtdv * s.sd, 2);
+    varianceHours += Math.pow(dtdv * speedUncertainty, 2);
     used = true;
   }
   if(!used) return null;
@@ -1196,7 +1516,7 @@ function formatTimeSpread(seconds){
   return '±' + minutes + ' min';
 }
 function calibrationModelReady(){
-  const model = kalBucketSpeeds();
+  const model = activeKalModel();
   return !!(model && (model.up !== null || model.flat !== null || model.down !== null));
 }
 function etaSpeedKmhForSlope(slope=null){
@@ -1205,15 +1525,13 @@ function etaSpeedKmhForSlope(slope=null){
     return manual !== null ? {kmh:manual, source:'manual'} : null;
   }
   if(etaMode === 'KAL'){
-    const bucket = kalBucketForSlope(slope);
-    const model = kalBucketSpeeds();
-    const modeled = bucket && model ? model[bucket] : null;
-    if(modeled !== null && Number.isFinite(modeled)) return {kmh:modeled, source:'model'};
+    const fineKey = kalFineBucketForSlope(slope);
+    const model = activeKalModel();
+    const resolved = fineKey && model ? kalResolvedSpeedForFineBucket(model, fineKey) : null;
+    if(resolved && resolved.kmh !== null && Number.isFinite(resolved.kmh)) return {kmh:resolved.kmh, source:'model'};
     const simple = simpleSpeedKmh();
     return simple !== null ? {kmh:simple, source:'simple'} : null;
   }
-  const simple = simpleSpeedKmh();
-  if(simple !== null) return {kmh:simple, source:'simple'};
   return null;
 }
 function etaSpeedKmhForInterval(startDist, endDist){
@@ -1232,23 +1550,17 @@ function effectiveSpeedMps(slope=null){
   return etaSpeed ? etaSpeed.kmh / 3.6 : null;
 }
 function setEtaMode(mode){
-  if(!['MAN','SIM','KAL'].includes(mode)) mode = 'SIM';
-  if(mode === 'KAL' && !calibrationModelReady()) mode = 'SIM';
-  if(mode === 'SIM'){
-    const manualEl = document.getElementById('manualSpeed');
-    if(manualEl){
-      manualEl.value = '0';
-      localStorage.setItem('profilGpsManualSpeedKmh', '0');
-    }
-  }
+  if(!['MAN','KAL'].includes(mode)) mode = 'MAN';
+  if(mode === 'KAL' && !calibrationModelReady()) mode = 'MAN';
   etaMode = mode;
+  resetEtaDisplaySmoothing();
   updateEtaModeButtons();
-  updateInfo();
+  updateInfo(null, null, true);
 }
 function updateEtaModeButtons(){
-  const ids = {MAN:'etaModeMan', SIM:'etaModeSim', KAL:'etaModeKal'};
+  const ids = {MAN:'etaModeMan', KAL:'etaModeKal'};
   const kalReady = calibrationModelReady();
-  if(etaMode === 'KAL' && !kalReady) etaMode = 'SIM';
+  if(etaMode === 'KAL' && !kalReady) etaMode = 'MAN';
   for(const mode of Object.keys(ids)){
     const el = document.getElementById(ids[mode]);
     if(!el) continue;
@@ -1535,9 +1847,10 @@ function setForecastFromClientX(clientX){
   const targetDist=clamp(viewStart+frac*(viewEnd-viewStart), startDist, totalDist);
   forecastTargetDist=targetDist;
   forecastOffsetRatio=clampForecastRatio((targetDist-startDist)/(viewEnd-viewStart));
+  resetEtaDisplaySmoothing();
   localStorage.setItem('profilGpsForecastTargetDist', String(forecastTargetDist));
   localStorage.setItem('profilGpsForecastOffsetRatio', String(forecastOffsetRatio));
-  updateInfo();
+  updateInfo(null, null, true);
   draw();
 }
 function isForecastHandle(clientX, clientY){
@@ -2064,13 +2377,13 @@ function updateForwardSlope50Field(){
 }
 
 
-function updateInfo(gpsD=null, acc=null){
+function updateInfo(gpsD=null, acc=null, forceEta=false){
   if(!route.length) return;
   if(gpsD!==null) lastGpsDistance=gpsD;
   if(acc!==null) lastGpsAccuracy=acc;
   const p=route[markerIdx];
   const timeToForecastEl = document.getElementById('timeToForecast');
-  const forecastSeconds = etaToForecastSeconds();
+  const forecastSeconds = smoothedEtaSeconds(forceEta);
   if(timeToForecastEl) timeToForecastEl.textContent = formatDuration(forecastSeconds);
   const fsForAscent = forecastStats();
   const ascentToForecastEl = document.getElementById('ascentToForecast');
@@ -2086,7 +2399,7 @@ function updateInfo(gpsD=null, acc=null){
   const speedsEl = document.getElementById('calSpeeds');
   if(speedsEl) speedsEl.textContent = formatModeSpeeds();
   document.getElementById('left').textContent=fsForAscent ? ((fsForAscent.endDist - fsForAscent.startDist)/1000).toFixed(2)+' km' : '-';
-  document.getElementById('eta').textContent=formatArrivalTime(forecastSeconds);
+  document.getElementById('eta').textContent=formatArrivalTimeFromBase(forecastSeconds, etaDisplayState.baseTime);
   const offEl = document.getElementById('off');
   if(offEl) offEl.textContent=lastGpsDistance==null?'-':Math.round(lastGpsDistance)+' m';
   const accEl = document.getElementById('acc');
@@ -2109,16 +2422,16 @@ setInterval(()=>{
 }, 1000);
 
 const manualSpeedEl = document.getElementById('manualSpeed');
-if(manualSpeedEl){
+  if(manualSpeedEl){
   const savedSpeed = localStorage.getItem('profilGpsManualSpeedKmh');
   if(savedSpeed) manualSpeedEl.value = savedSpeed;
   manualSpeedEl.addEventListener('input', ()=>{
     localStorage.setItem('profilGpsManualSpeedKmh', manualSpeedEl.value);
-    updateInfo();
+    updateInfo(null, null, etaMode === 'MAN');
   });
 }
+historicalKalModel = loadHistoricalKalModel();
 safeAddClick('etaModeMan', ()=>setEtaMode('MAN'));
-safeAddClick('etaModeSim', ()=>setEtaMode('SIM'));
 safeAddClick('etaModeKal', ()=>setEtaMode('KAL'));
 updateEtaModeButtons();
 
@@ -2185,6 +2498,129 @@ asphaltInput.addEventListener('change', async e=>{
   }
 });
 }
+
+const historyInput = document.getElementById('historyFiles');
+if(historyInput && historyInput.dataset.boundHistory !== "1"){
+historyInput.dataset.boundHistory = "1";
+historyInput.addEventListener('change', async e=>{
+  const files = Array.from(e.target.files || []).slice(0, 5);
+  if(!files.length) return;
+  try{
+    const tracks = [];
+    const names = [];
+    for(const f of files){
+      const points = parseGpxTrackWithTime(await f.text());
+      if(points.length >= 2){
+        tracks.push(points);
+        names.push(f.name);
+      }
+    }
+    const model = buildHistoricalKalModelFromTracks(tracks, names);
+    if(!model){
+      statusEl.innerHTML='<span class="bad">DANE: pliki GPX muszą zawierać ślad z czasem i wysokością.</span>';
+      historicalKalModel = null;
+      saveHistoricalKalModel();
+      updateEtaModeButtons();
+      updateInfo(null, null, etaMode === 'KAL');
+      return;
+    }
+    historicalKalModel = model;
+    saveHistoricalKalModel();
+    updateEtaModeButtons();
+    updateInfo(null, null, etaMode === 'KAL');
+    statusEl.innerHTML='<span class="ok">DANE: wczytano '+tracks.length+' plików, odcinki pomiarowe: '+model.count+', średnia historyczna: '+model.avgSpeed.toFixed(1)+' km/h.</span>';
+  }catch(err){
+    statusEl.innerHTML='<span class="bad">Błąd DANE: '+escapeHtml(err.message || String(err))+'</span>';
+  } finally {
+    historyInput.value = '';
+  }
+});
+}
+
+function stopTestPlayback(){
+  if(testPlayback.timer){
+    clearTimeout(testPlayback.timer);
+    testPlayback.timer = null;
+  }
+  const btn = document.getElementById('testBtn');
+  if(btn) btn.textContent = 'TEST';
+}
+function applyTestPoint(p){
+  if(!route.length || !p) return;
+  lastGpsLat = p.lat;
+  lastGpsLon = p.lon;
+  updateRoughTrackFromGps(p.lat, p.lon, 5);
+  const n = nearestTracked(p.lat, p.lon);
+  markerIdx = n.idx;
+  if(sim) sim.value=Math.round(1000*markerIdx/(route.length-1));
+  if(testPlayback.idx === 0){
+    setSimpleEtaBaseline(route[markerIdx].dist, p.t);
+    recordSpeedPosition(route[markerIdx].dist, 'reset', p.t);
+    resetEtaDisplaySmoothing();
+  }
+  recordSimpleEtaRealPosition(route[markerIdx].dist, p.t);
+  recordSpeedPosition(route[markerIdx].dist, 'gps', p.t);
+  updateInfo(n.d, 5, etaDisplayState.seconds === null);
+  autoScrollAfterMarkerHalf();
+  draw();
+}
+function scheduleTestStep(){
+  if(!testPlayback.timer || testPlayback.idx >= testPlayback.points.length){
+    stopTestPlayback();
+    statusEl.textContent = 'TEST zakończony.';
+    return;
+  }
+  const p = testPlayback.points[testPlayback.idx];
+  applyTestPoint(p);
+  testPlayback.idx += 1;
+  if(testPlayback.idx >= testPlayback.points.length){
+    scheduleTestStep();
+    return;
+  }
+  const next = testPlayback.points[testPlayback.idx];
+  const dt = Math.max(80, Math.min(2000, (next.t - p.t) / testPlayback.speed));
+  testPlayback.timer = setTimeout(scheduleTestStep, dt);
+}
+function startTestPlayback(points){
+  if(!route.length){
+    statusEl.innerHTML='<span class="bad">Najpierw wczytaj główny GPX trasy.</span>';
+    return;
+  }
+  if(!points || points.length < 2){
+    statusEl.innerHTML='<span class="bad">Plik TEST musi mieć punkty GPX z czasem.</span>';
+    return;
+  }
+  stopTestPlayback();
+  trackingInitialized=false;
+  speedHistory = {signature:currentRouteSignature(), points:[]};
+  saveSpeedHistory();
+  testPlayback.points = points;
+  testPlayback.idx = 0;
+  testPlayback.timer = setTimeout(scheduleTestStep, 0);
+  const btn = document.getElementById('testBtn');
+  if(btn) btn.textContent = 'STOP TEST';
+  statusEl.textContent = 'TEST uruchomiony: '+points.length+' punktów.';
+}
+const testBtn = document.getElementById('testBtn');
+const testFile = document.getElementById('testFile');
+if(testBtn && testFile && testBtn.dataset.boundTest !== "1"){
+  testBtn.dataset.boundTest = "1";
+  testBtn.addEventListener('click', ()=>{
+    if(testPlayback.timer){ stopTestPlayback(); statusEl.textContent='TEST zatrzymany.'; return; }
+    testFile.click();
+  });
+  testFile.addEventListener('change', async e=>{
+    const f = e.target.files[0]; if(!f) return;
+    try{
+      const points = parseGpxTrackWithTime(await f.text());
+      startTestPlayback(points);
+    }catch(err){
+      statusEl.innerHTML='<span class="bad">Błąd TEST: '+escapeHtml(err.message || String(err))+'</span>';
+    } finally {
+      testFile.value = '';
+    }
+  });
+}
 const gpsButton = document.getElementById('gpsBtn');
 if(gpsButton && gpsButton.dataset.boundGpsV54 !== "1"){
 gpsButton.dataset.boundGpsV54 = "1";
@@ -2200,7 +2636,8 @@ gpsButton.addEventListener('click', ()=>{
     return;
   }
   trackingInitialized=false;
-  updateInfo();
+  resetEtaDisplaySmoothing();
+  updateInfo(null, null, true);
   if(!navigator.geolocation){
     updateGpsButtonState();
     statusEl.innerHTML='<span class="bad">Brak obsługi GPS w tej przeglądarce.</span>';
@@ -2214,7 +2651,7 @@ gpsButton.addEventListener('click', ()=>{
     markerIdx=n.idx; if(sim) sim.value=Math.round(1000*markerIdx/(route.length-1));
     recordSimpleEtaRealPosition(route[markerIdx].dist);
     recordSpeedPosition(route[markerIdx].dist, 'gps');
-    updateInfo(n.d, pos.coords.accuracy);
+    updateInfo(n.d, pos.coords.accuracy, etaDisplayState.seconds === null);
     autoScrollAfterMarkerHalf();
     draw();
   }, err=>{ statusEl.innerHTML='<span class="bad">Błąd GPS: '+err.message+'</span>'; updateGpsButtonState(); },
@@ -2415,7 +2852,10 @@ function setMarkerByDistanceV54(distMeters, source){
   const idx = nearestRouteIndexByDistanceV54(d);
 
   markerIdx = idx;
-  if(source === "gps") recordSimpleEtaRealPosition(route[idx].dist);
+  if(source === "gps"){
+    recordSimpleEtaRealPosition(route[idx].dist);
+    if(etaDisplayState.seconds === null) resetEtaDisplaySmoothing();
+  }
 
   // Synchronizacja zmiennych używanych przez różne wersje aplikacji.
   try { currentGpxKm = route[idx].dist / 1000; } catch(e) {}
@@ -2437,7 +2877,7 @@ function setMarkerByDistanceV54(distMeters, source){
   }
 
   updatePositionSliderV54();
-  if(typeof updateInfo === "function") updateInfo();
+  if(typeof updateInfo === "function") updateInfo(null, null, source === "gps" && etaDisplayState.seconds === null);
   if(typeof draw === "function") draw();
 }
 

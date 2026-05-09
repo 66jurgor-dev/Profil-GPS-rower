@@ -1,4 +1,4 @@
-const CACHE_NAME = 'profil-gps-pwa-v61-button-layout-no-2km';
+const CACHE_NAME = 'profil-gps-pwa-v71-man-kal-only';
 const FILES = ['index.html','manifest.json','service-worker.js','trasa.js','icon.svg','icon-192.png','icon-512.png'];
 self.addEventListener('install', e => {
   self.skipWaiting();
