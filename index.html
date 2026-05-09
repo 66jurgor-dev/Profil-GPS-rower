@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Profil trasy GPS offline v.60</title>
+<title>Profil trasy GPS offline v.61</title>
 <link rel="manifest" href="manifest.json">
 <style>
 :root { --bg:#0f172a; --panel:#111827; --text:#e5e7eb; --muted:#9ca3af; --line:#38bdf8; --accent:#f59e0b; --bad:#ef4444; --ok:#22c55e; }
@@ -218,7 +218,7 @@ label:has(input[type="file"]) {
 </head>
 <body>
 <header>
-  <h1>Profil trasy GPS offline v.60</h1>
+  <h1>Profil trasy GPS offline v.61</h1>
 </header>
 <main>
 <section class="panel">
@@ -239,19 +239,22 @@ label:has(input[type="file"]) {
 
     <div class="tile">Prędkość MAN [km/h]<input id="manualSpeed" class="speed-input" type="number" inputmode="decimal" min="0" step="0.1" placeholder="np. 20.0"></div>
   </div>
-<div class="controls">
-<label class="file blue">Wczytaj GPX<input id="file" type="file" accept=".gpx,application/gpx+xml,text/xml"></label>
-<label class="file green">Asfalt<input id="asphaltFile" type="file" accept=".gpx,application/gpx+xml,text/xml"></label>
+  <div class="controls">
+    <label class="file blue">Wczytaj GPX<input id="file" type="file" accept=".gpx,application/gpx+xml,text/xml"></label>
+    <label class="file green">Asfalt<input id="asphaltFile" type="file" accept=".gpx,application/gpx+xml,text/xml"></label>
     <button id="gpsBtn" class="gps-off">GPS</button>
+  </div>
+  <div class="controls">
     <button id="fitBtn" class="green">Pokaż całość</button>
-    <button id="twoKmBtn" class="green">2 km</button>
-      <button id="yDownBtn" onclick="yDown()" class="green">Y DOWN</button>
-    <button id="btnResetCzasu" class="red" onclick="resetCzasuAplikacji()">Reset</button>
+    <button id="yDownBtn" onclick="yDown()" class="green">Y DOWN</button>
   </div>
   <div class="controls mode-controls">
     <button id="etaModeMan" class="mode-btn" type="button">MAN</button>
     <button id="etaModeSim" class="mode-btn" type="button">SIM</button>
     <button id="etaModeKal" class="mode-btn" type="button">KAL</button>
+  </div>
+  <div class="controls">
+    <button id="btnResetCzasu" class="red" onclick="resetCzasuAplikacji()">Reset</button>
   </div>
 </section>
 </main>
@@ -885,22 +888,6 @@ function setViewWidthMeters(widthMeters){
   } else {
     const markerDist = route[markerIdx] ? route[markerIdx].dist : 0;
     viewStart = clamp(markerDist - width/2, 0, Math.max(0, totalDist - width));
-    viewEnd = viewStart + width;
-    xZoom = totalDist / width;
-  }
-  draw();
-}
-function setForwardViewMeters(widthMeters){
-  if(!route.length || !Number.isFinite(widthMeters) || widthMeters <= 0) return;
-  mapFitAll = false;
-  const markerDist = route[markerIdx] ? route[markerIdx].dist : 0;
-  const width = Math.min(totalDist || widthMeters, widthMeters);
-  if(width >= totalDist){
-    xZoom = 1;
-    viewStart = 0;
-    viewEnd = totalDist;
-  } else {
-    viewStart = clamp(markerDist, 0, Math.max(0, totalDist - width));
     viewEnd = viewStart + width;
     xZoom = totalDist / width;
   }
@@ -2236,7 +2223,6 @@ gpsButton.addEventListener('click', ()=>{
 });
 }
 document.getElementById('fitBtn').addEventListener('click', ()=>{ xZoom=1; yStretch=1; viewStart=0; viewEnd=totalDist; mapFitAll=true; draw(); });
-document.getElementById('twoKmBtn').addEventListener('click', ()=>{ setForwardViewMeters(2000); });
 canvas.addEventListener('wheel', e=>{
   e.preventDefault();
   const d=distFromCanvasX(e.clientX);
