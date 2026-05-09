@@ -1,4 +1,4 @@
-const CACHE_NAME = 'profil-gps-pwa-v71-man-kal-only';
+const CACHE_NAME = 'profil-gps-pwa-v72-mobile-canvas-scroll';
 const FILES = ['index.html','manifest.json','service-worker.js','trasa.js','icon.svg','icon-192.png','icon-512.png'];
 self.addEventListener('install', e => {
   self.skipWaiting();
