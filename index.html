@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Profil trasy GPS offline</title>
+<title>Profil trasy GPS offline v.51</title>
 <link rel="manifest" href="manifest.json">
 <style>
 :root { --bg:#0f172a; --panel:#111827; --text:#e5e7eb; --muted:#9ca3af; --line:#38bdf8; --accent:#f59e0b; --bad:#ef4444; --ok:#22c55e; }
@@ -22,6 +22,14 @@ button.blue, label.file.blue { background:#2563eb; border-color:#1d4ed8; }
 button.green { background:#16a34a; border-color:#15803d; }
 button.orange { background:#f59e0b; border-color:#d97706; color:#111827; font-weight:700; }
 button.red { background:#dc2626; border-color:#b91c1c; }
+#gpsBtn.gps-on { background:#2563eb; border-color:#1d4ed8; color:#fff; }
+#gpsBtn.gps-off { background:#6b7280; border-color:#4b5563; color:#fff; }
+.mode-controls { margin-top:8px; }
+.mode-btn { background:#6b7280; border-color:#4b5563; color:#fff; font-weight:800; }
+.mode-btn.active { background:#020617; border-color:#e5e7eb; color:#fff; }
+.mode-btn.ready { background:#16a34a; border-color:#15803d; color:#fff; }
+.mode-btn.blocked { background:#dc2626; border-color:#b91c1c; color:#fff; opacity:0.9; }
+.mode-btn:disabled { transform:none; }
 button:active, label.file:active { transform:translateY(1px); }
 input[type=file] { display:none; }
 input.speed-input { width:100%; margin-top:6px; background:#111827; color:var(--text); border:1px solid #374151; border-radius:10px; padding:8px; font-size:18px; font-weight:700; }
@@ -110,7 +118,7 @@ label[for="gpxFileInput"], label[for="gpxInput"], .gpx-button, .file-button, .fi
 }
 
 
-/* v54: Nachylenie 50 m jako normalny kafelek danych */
+/* v54: Nachylenie AVG jako normalny kafelek danych */
 #slopeForward50Value {
   font-weight: 700 !important;
 }
@@ -210,7 +218,7 @@ label:has(input[type="file"]) {
 </head>
 <body>
 <header>
-  <h1>Profil trasy GPS offline</h1>
+  <h1>Profil trasy GPS offline v.51</h1>
 </header>
 <main>
 <section class="panel">
@@ -223,22 +231,27 @@ label:has(input[type="file"]) {
     <div class="tile">Do prognozy<b id="left">-</b></div>
     <div class="tile">Koniec o:<b id="eta">-</b></div>
     <div class="tile">Czas do:<b id="timeToForecast">-</b></div>
-    <div class="tile">Wznios DO<b id="ascentToForecast">-</b></div>
-    <div class="tile">Wznios PO<b id="ascentAfterForecast">-</b></div>
-    <div class="tile">Wysokość z GPX<b id="ele">-</b></div>
-    <div class="tile">Prędkość z aplikacji<b id="appSpeed">-</b></div>
-    <div class="tile">Nachylenie 50 m<b id="slopeForward50Value">-</b></div>
+    <div class="tile">Prędkości: G | P | D<b id="calSpeeds">-</b></div>
+    <div class="tile">Rozrzut<b id="timeSpread">BRAK</b></div>
+    <div class="tile">Wznios<b id="ascentToForecast">-</b></div>
+    <div class="tile">Spadek<b id="descentToForecast">-</b></div>
+    <div class="tile">Nachylenie AVG<b id="slopeForward50Value">-</b></div>
 
-    <div class="tile">Prędkość [km/h]<input id="manualSpeed" class="speed-input" type="number" inputmode="decimal" min="0" step="0.1" placeholder="0 = auto"></div>
+    <div class="tile">Prędkość MAN [km/h]<input id="manualSpeed" class="speed-input" type="number" inputmode="decimal" min="0" step="0.1" placeholder="np. 20.0"></div>
   </div>
 <div class="controls">
 <label class="file blue">Wczytaj GPX<input id="file" type="file" accept=".gpx,application/gpx+xml,text/xml"></label>
-    <button id="gpsBtn" class="blue">Start GPS</button>
+    <button id="gpsBtn" class="gps-off">GPS</button>
     <button id="fitBtn" class="green">Pokaż całość</button>
     <button id="twoKmBtn" class="green">2 km</button>
       <button id="yUpBtn" onclick="yUp()" class="green">Y UP</button>
       <button id="yDownBtn" onclick="yDown()" class="green">Y DOWN</button>
     <button id="btnResetCzasu" class="red" onclick="resetCzasuAplikacji()">Reset</button>
+  </div>
+  <div class="controls mode-controls">
+    <button id="etaModeMan" class="mode-btn" type="button">MAN</button>
+    <button id="etaModeSim" class="mode-btn" type="button">SIM</button>
+    <button id="etaModeKal" class="mode-btn" type="button">KAL</button>
   </div>
 </section>
 </main>
@@ -254,6 +267,21 @@ function safeAddClick(id, handler){
   const el = document.getElementById(id);
   if (el) el.addEventListener('click', handler);
 }
+function isGpsActive(){
+  return watchId !== null || (typeof gpsWatchIdV54 !== 'undefined' && gpsWatchIdV54 !== null);
+}
+function updateGpsButtonState(){
+  const btn = document.getElementById('gpsBtn');
+  if(!btn) return;
+  const active = isGpsActive();
+  btn.textContent = 'GPS';
+  btn.classList.toggle('gps-on', active);
+  btn.classList.toggle('gps-off', !active);
+  btn.classList.toggle('blue', active);
+}
+function canMovePositionManually(){
+  return !isGpsActive();
+}
 
 let route = [];
 let totalDist = 0;
@@ -266,6 +294,12 @@ let roughTrack = {signature:null, dist:0, points:[]};
 const ROUGH_KEY = 'profilGpsRoughTrackV12';
 let speedHistory = {signature:null, points:[]};
 const SPEED_KEY = 'profilGpsSpeedHistoryV1';
+let etaMode = 'SIM';
+let simpleEtaStart = {t:Date.now(), dist:0};
+let simpleEtaCurrent = {t:null, dist:0, hasReal:false};
+const KAL_UP_SLOPE = 2;
+const KAL_DOWN_SLOPE = -2;
+const KAL_CHUNK_M = 250;
 let manualLockUntil = 0;
 let manualLockCenterDist = null;
 let gpxNotePoints = [];
@@ -287,6 +321,7 @@ function formatGpxCoord(p){
 }
 
 let watchId = null;
+let gpsWatchIdV54 = null;
 let wakeLock = null;
 let trackingInitialized = false;
 let viewStart = 0;
@@ -338,7 +373,11 @@ function loadRoughTrack(){
     const raw = localStorage.getItem(ROUGH_KEY);
     const obj = raw ? JSON.parse(raw) : null;
     if(obj && obj.signature === sig && Number.isFinite(obj.dist)){
-      roughTrack = {signature:sig, dist:obj.dist, points:Array.isArray(obj.points)?obj.points:[]};
+      roughTrack = {
+        signature:sig,
+        dist:Math.max(0, obj.dist || 0),
+        points:Array.isArray(obj.points)?obj.points:[]
+      };
     } else {
       roughTrack = {signature:sig, dist:0, points:[]};
     }
@@ -365,6 +404,23 @@ function loadSpeedHistory(){
 }
 function saveSpeedHistory(){
   try{ localStorage.setItem(SPEED_KEY, JSON.stringify(speedHistory)); }catch(e){}
+}
+function setSimpleEtaBaseline(dist=null){
+  const baseDist = dist === null && route[markerIdx] ? route[markerIdx].dist : dist;
+  const d = clamp(Number(baseDist) || 0, 0, totalDist || 0);
+  simpleEtaStart = {
+    t:Date.now(),
+    dist:d
+  };
+  simpleEtaCurrent = {t:null, dist:d, hasReal:false};
+}
+function recordSimpleEtaRealPosition(dist){
+  if(!route.length || !Number.isFinite(dist)) return;
+  simpleEtaCurrent = {
+    t:Date.now(),
+    dist:clamp(dist, 0, totalDist || 0),
+    hasReal:true
+  };
 }
 function recordSpeedPosition(dist, source='gps'){
   if(!route.length || !Number.isFinite(dist)) return;
@@ -431,8 +487,16 @@ function addGpxNotePoints(notePoints){
 function escapeHtml(text){
   return String(text).replace(/[&<>"]/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[ch]));
 }
+function roughRouteProgressDist(){
+  if(route[markerIdx] && Number.isFinite(route[markerIdx].dist)) return route[markerIdx].dist;
+  return roughTrack && Number.isFinite(roughTrack.dist) ? roughTrack.dist : 0;
+}
 function resetRoughTrack(dist=0){
-  roughTrack = {signature:currentRouteSignature(), dist:Math.max(0, dist||0), points:[]};
+  roughTrack = {
+    signature:currentRouteSignature(),
+    dist:clamp(Number(dist) || 0, 0, totalDist || 0),
+    points:[]
+  };
   if(Number.isFinite(lastGpsLat) && Number.isFinite(lastGpsLon)){
     roughTrack.points.push({lat:lastGpsLat, lon:lastGpsLon, t:Date.now(), dist:roughTrack.dist});
   }
@@ -444,6 +508,7 @@ function resetCzasuAplikacji(){
 
   speedHistory = {signature:currentRouteSignature(), points:[]};
   saveSpeedHistory();
+  etaMode = 'SIM';
 
   let resetSource = 'manual';
   let gpsDistance = null;
@@ -465,6 +530,7 @@ function resetCzasuAplikacji(){
   trackingInitialized = resetSource === 'gps';
   manualLockUntil = resetSource === 'gps' ? 0 : Date.now() + MANUAL_LOCK_MS;
   manualLockCenterDist = resetSource === 'gps' ? null : route[markerIdx].dist;
+  setSimpleEtaBaseline(route[markerIdx].dist);
   resetRoughTrack(route[markerIdx].dist);
   recordSpeedPosition(route[markerIdx].dist, 'reset');
   keepMarkerVisible();
@@ -548,6 +614,7 @@ function prepare(points){
   autoCenter=false;
   forecastTargetDist=NaN;
   localStorage.removeItem('profilGpsForecastTargetDist');
+  setSimpleEtaBaseline(route[markerIdx] ? route[markerIdx].dist : 0);
 
   if(sim) sim.value = route.length > 1 ? Math.round(1000*markerIdx/(route.length-1)) : 0;
   updateInfo();
@@ -612,7 +679,7 @@ function nearestGlobalWithRoughMileage(lat, lon){
     if(d<bestD) bestD=d;
   }
 
-  const rough = roughTrack && Number.isFinite(roughTrack.dist) ? roughTrack.dist : 0;
+  const rough = roughRouteProgressDist();
   let best=0, bestScore=Infinity;
   for(let i=0;i<route.length;i++){
     const d = distances[i];
@@ -790,12 +857,14 @@ function visibleRoute(){
   return route.filter(p => p.dist>=viewStart && p.dist<=viewEnd);
 }
 function markerColor(){
-  if(lastGpsDistance==null) return '#f59e0b';
+  if(!isGpsActive()) return '#94a3b8';
+  if(lastGpsDistance==null) return '#94a3b8';
   if(lastGpsDistance<=100) return '#22c55e';
   if(lastGpsDistance<=500) return '#f59e0b';
   return '#ef4444';
 }
 function markerStatusClass(){
+  if(!isGpsActive()) return 'accent';
   if(lastGpsDistance==null) return 'accent';
   if(lastGpsDistance<=100) return 'ok';
   if(lastGpsDistance<=500) return 'accent';
@@ -878,6 +947,15 @@ function manualSpeedMps(){
   const kmh = manualSpeedKmh();
   return kmh === null ? null : kmh / 3.6;
 }
+function simpleSpeedKmh(){
+  if(!route.length || !simpleEtaStart || !simpleEtaCurrent || !simpleEtaCurrent.hasReal) return null;
+  const elapsedH = (simpleEtaCurrent.t - simpleEtaStart.t) / 3600000;
+  const distKm = (simpleEtaCurrent.dist - simpleEtaStart.dist) / 1000;
+  if(!Number.isFinite(elapsedH) || !Number.isFinite(distKm) || elapsedH <= 1/120 || distKm <= 0.02) return null;
+  const kmh = distKm / elapsedH;
+  if(!Number.isFinite(kmh) || kmh <= 0 || kmh > 120) return null;
+  return kmh;
+}
 function appSpeedKmh(){
   if(!speedHistory || !Array.isArray(speedHistory.points) || speedHistory.points.length < 2) return null;
   const now = Date.now();
@@ -912,74 +990,234 @@ function slopePercentBetweenDist(startDist, endDist){
   if(e1 === null || e2 === null || !Number.isFinite(e1) || !Number.isFinite(e2)) return null;
   return 100 * (e2 - e1) / span;
 }
-function speedSlopeModelKmh(){
-  if(!speedHistory || !Array.isArray(speedHistory.points) || speedHistory.points.length < 4) return null;
-  const now = Date.now();
-  const tauMs = 45 * 60 * 1000;
-  let sumW = 0, sumWS = 0, sumWV = 0;
-  const rows = [];
+function kalBucketForSlope(slope){
+  if(slope === null || !Number.isFinite(slope)) return null;
+  if(slope > KAL_UP_SLOPE) return 'up';
+  if(slope < KAL_DOWN_SLOPE) return 'down';
+  return 'flat';
+}
+function emptyKalBuckets(){
+  return {
+    up:{distKm:0, hours:0, count:0},
+    flat:{distKm:0, hours:0, count:0},
+    down:{distKm:0, hours:0, count:0}
+  };
+}
+function emptyKalStats(){
+  return {
+    up:{distKm:0, hours:0, count:0, speeds:[]},
+    flat:{distKm:0, hours:0, count:0, speeds:[]},
+    down:{distKm:0, hours:0, count:0, speeds:[]}
+  };
+}
+function kalSegmentAllowed(a, b){
+  if(!a || !b) return false;
+  if(b.source !== 'gps') return false;
+  return a.source === 'gps' || a.source === 'reset';
+}
+function kalBucketSpeeds(){
+  if(!speedHistory || !Array.isArray(speedHistory.points) || speedHistory.points.length < 2) return null;
+  const buckets = emptyKalStats();
+  let validCount = 0;
 
   for(let i=1; i<speedHistory.points.length; i++){
     const a = speedHistory.points[i-1];
     const b = speedHistory.points[i];
-    if(!a || !b) continue;
+    if(!kalSegmentAllowed(a, b)) continue;
     const dtH = (b.t - a.t) / 3600000;
     const ddKm = (b.dist - a.dist) / 1000;
     if(!Number.isFinite(dtH) || !Number.isFinite(ddKm) || dtH <= 1/120 || dtH > 1 || ddKm <= 0.02) continue;
     const speed = ddKm / dtH;
-    if(!Number.isFinite(speed) || speed < 0 || speed > 120) continue;
+    if(!Number.isFinite(speed) || speed <= 0 || speed > 120) continue;
     const slope = slopePercentBetweenDist(a.dist, b.dist);
-    if(slope === null || !Number.isFinite(slope)) continue;
-    const w = Math.exp(-Math.max(0, now - b.t) / tauMs);
-    rows.push({w, slope, speed});
-    sumW += w;
-    sumWS += w * slope;
-    sumWV += w * speed;
+    const bucket = kalBucketForSlope(slope);
+    if(!bucket) continue;
+    buckets[bucket].distKm += ddKm;
+    buckets[bucket].hours += dtH;
+    buckets[bucket].count += 1;
+    buckets[bucket].speeds.push(speed);
+    validCount += 1;
   }
 
-  if(rows.length < 3 || sumW <= 0) return null;
-  const meanS = sumWS / sumW;
-  const meanV = sumWV / sumW;
-  let varS = 0, covSV = 0;
-  for(const r of rows){
-    const ds = r.slope - meanS;
-    const dv = r.speed - meanV;
-    varS += r.w * ds * ds;
-    covSV += r.w * ds * dv;
+  if(validCount <= 0) return null;
+  const result = {up:null, flat:null, down:null, buckets, count:validCount};
+  for(const key of ['up','flat','down']){
+    const b = buckets[key];
+    if(b.hours > 0 && b.distKm > 0){
+      const kmh = b.distKm / b.hours;
+      if(Number.isFinite(kmh) && kmh > 0 && kmh <= 120) result[key] = kmh;
+    }
   }
-  if(varS < 0.01) return null;
-  const a = covSV / varS;
-  const b = meanV - a * meanS;
-  if(!Number.isFinite(a) || !Number.isFinite(b)) return null;
-  return {a, b, count:rows.length};
+  return result;
 }
-function modeledSpeedKmhForSlope(slope){
-  if(slope === null || !Number.isFinite(slope)) return null;
-  const model = speedSlopeModelKmh();
+function kalBucketSpeedStats(){
+  const model = kalBucketSpeeds();
   if(!model) return null;
-  const speed = model.a * slope + model.b;
-  if(!Number.isFinite(speed)) return null;
-  return clamp(speed, 1, 120);
+  const stats = {};
+  for(const key of ['up','flat','down']){
+    const bucket = model.buckets[key];
+    const speeds = bucket && Array.isArray(bucket.speeds) ? bucket.speeds : [];
+    const mean = model[key];
+    let sd = null;
+    if(speeds.length >= 2 && mean !== null && Number.isFinite(mean)){
+      const variance = speeds.reduce((sum, v) => sum + Math.pow(v - mean, 2), 0) / (speeds.length - 1);
+      sd = Math.sqrt(variance);
+      if(!Number.isFinite(sd)) sd = null;
+    }
+    stats[key] = {mean, sd, count:speeds.length};
+  }
+  return stats;
+}
+function formatKalSpeeds(model=kalBucketSpeeds()){
+  if(!model) return '-';
+  const part = key => model[key] === null ? '-' : model[key].toFixed(1);
+  return part('up') + ' | ' + part('flat') + ' | ' + part('down');
+}
+function formatTripleSpeed(kmh){
+  if(kmh === null || !Number.isFinite(kmh) || kmh <= 0) return '-';
+  const v = kmh.toFixed(1);
+  return v + ' | ' + v + ' | ' + v;
+}
+function formatModeSpeeds(){
+  if(etaMode === 'MAN') return formatTripleSpeed(manualSpeedKmh());
+  if(etaMode === 'SIM') return formatTripleSpeed(simpleSpeedKmh());
+  return formatKalSpeeds();
+}
+function routeKalBucketsBetweenDist(startDist, endDist){
+  if(!route.length) return null;
+  startDist = clamp(startDist, 0, totalDist);
+  endDist = clamp(endDist, 0, totalDist);
+  if(endDist <= startDist + 1) return emptyKalBuckets();
+
+  const buckets = emptyKalBuckets();
+  let d = startDist;
+  while(d < endDist - 0.5){
+    const next = Math.min(endDist, d + KAL_CHUNK_M);
+    const spanKm = (next - d) / 1000;
+    const bucket = kalBucketForSlope(slopePercentBetweenDist(d, next));
+    if(bucket && spanKm > 0){
+      buckets[bucket].distKm += spanKm;
+      buckets[bucket].count += 1;
+    }
+    d = next;
+  }
+  return buckets;
+}
+function kalEtaSecondsBetweenDist(startDist, endDist){
+  const speeds = kalBucketSpeeds();
+  const routeBuckets = routeKalBucketsBetweenDist(startDist, endDist);
+  if(!speeds || !routeBuckets) return null;
+
+  const fallback = simpleSpeedKmh() ?? manualSpeedKmh();
+  let hours = 0;
+  for(const key of ['up','flat','down']){
+    const distKm = routeBuckets[key].distKm;
+    if(distKm <= 0) continue;
+    const kmh = speeds[key] ?? fallback;
+    if(kmh === null || !Number.isFinite(kmh) || kmh <= 0) return null;
+    hours += distKm / kmh;
+  }
+  return hours * 3600;
+}
+function kalTimeSpreadSecondsBetweenDist(startDist, endDist){
+  if(etaMode !== 'KAL') return null;
+  const stats = kalBucketSpeedStats();
+  const routeBuckets = routeKalBucketsBetweenDist(startDist, endDist);
+  if(!stats || !routeBuckets) return null;
+
+  let varianceHours = 0;
+  let used = false;
+  for(const key of ['up','flat','down']){
+    const distKm = routeBuckets[key].distKm;
+    const s = stats[key];
+    if(!s || distKm <= 0 || s.mean === null || s.sd === null) continue;
+    if(!Number.isFinite(s.mean) || !Number.isFinite(s.sd) || s.mean <= 0 || s.sd < 0) continue;
+    const dtdv = distKm / (s.mean * s.mean);
+    varianceHours += Math.pow(dtdv * s.sd, 2);
+    used = true;
+  }
+  if(!used) return null;
+  const spreadSeconds = Math.sqrt(varianceHours) * 3600;
+  return Number.isFinite(spreadSeconds) ? spreadSeconds : null;
+}
+function formatTimeSpread(seconds){
+  if(seconds === null || !Number.isFinite(seconds) || seconds < 0) return 'BRAK';
+  const minutes = Math.round(seconds / 60);
+  if(minutes < 1) return '<1 min';
+  return '±' + minutes + ' min';
+}
+function calibrationModelReady(){
+  const model = kalBucketSpeeds();
+  return !!(model && (model.up !== null || model.flat !== null || model.down !== null));
 }
 function etaSpeedKmhForSlope(slope=null){
-  const manual = manualSpeedKmh();
-  if(manual !== null) return {kmh:manual, source:'manual'};
-  const modeled = modeledSpeedKmhForSlope(slope);
-  if(modeled !== null) return {kmh:modeled, source:'model'};
-  const appV = appSpeedKmh();
-  if(appV !== null) return {kmh:appV, source:'app'};
+  if(etaMode === 'MAN'){
+    const manual = manualSpeedKmh();
+    return manual !== null ? {kmh:manual, source:'manual'} : null;
+  }
+  if(etaMode === 'KAL'){
+    const bucket = kalBucketForSlope(slope);
+    const model = kalBucketSpeeds();
+    const modeled = bucket && model ? model[bucket] : null;
+    if(modeled !== null && Number.isFinite(modeled)) return {kmh:modeled, source:'model'};
+    const simple = simpleSpeedKmh();
+    return simple !== null ? {kmh:simple, source:'simple'} : null;
+  }
+  const simple = simpleSpeedKmh();
+  if(simple !== null) return {kmh:simple, source:'simple'};
   return null;
 }
+function etaSpeedKmhForInterval(startDist, endDist){
+  if(etaMode === 'KAL'){
+    const seconds = kalEtaSecondsBetweenDist(startDist, endDist);
+    const distKm = Math.max(0, endDist - startDist) / 1000;
+    if(seconds !== null && Number.isFinite(seconds) && seconds > 0 && distKm > 0){
+      return {kmh:distKm / (seconds / 3600), source:'model'};
+    }
+  }
+  const slope = slopePercentBetweenDist(startDist, endDist);
+  return etaSpeedKmhForSlope(slope);
+}
 function effectiveSpeedMps(slope=null){
-  // Wpisana prędkość > 0 ma pierwszeństwo.
-  // Wartość 0 lub puste pole oznacza tryb automatyczny na podstawie historii pozycji GPS/Ustaw km.
   const etaSpeed = etaSpeedKmhForSlope(slope);
   return etaSpeed ? etaSpeed.kmh / 3.6 : null;
+}
+function setEtaMode(mode){
+  if(!['MAN','SIM','KAL'].includes(mode)) mode = 'SIM';
+  if(mode === 'KAL' && !calibrationModelReady()) mode = 'SIM';
+  if(mode === 'SIM'){
+    const manualEl = document.getElementById('manualSpeed');
+    if(manualEl){
+      manualEl.value = '0';
+      localStorage.setItem('profilGpsManualSpeedKmh', '0');
+    }
+  }
+  etaMode = mode;
+  updateEtaModeButtons();
+  updateInfo();
+}
+function updateEtaModeButtons(){
+  const ids = {MAN:'etaModeMan', SIM:'etaModeSim', KAL:'etaModeKal'};
+  const kalReady = calibrationModelReady();
+  if(etaMode === 'KAL' && !kalReady) etaMode = 'SIM';
+  for(const mode of Object.keys(ids)){
+    const el = document.getElementById(ids[mode]);
+    if(!el) continue;
+    el.classList.toggle('active', etaMode === mode);
+    if(mode === 'KAL'){
+      el.disabled = !kalReady;
+      el.classList.toggle('ready', kalReady);
+      el.classList.toggle('blocked', !kalReady);
+    }
+  }
 }
 function etaToEndSeconds(){
   if(!route.length) return null;
   const p = route[markerIdx];
   const left = Math.max(0, totalDist - p.dist);
+  if(etaMode === 'KAL'){
+    return kalEtaSecondsBetweenDist(p.dist, totalDist);
+  }
   const speed = effectiveSpeedMps();
   if(speed === null) return null;
   return left / speed;
@@ -989,6 +1227,9 @@ function etaToForecastSeconds(){
   const fs = forecastStats();
   if(!fs) return null;
   const dist = Math.max(0, fs.endDist - fs.startDist);
+  if(etaMode === 'KAL'){
+    return kalEtaSecondsBetweenDist(fs.startDist, fs.endDist);
+  }
   const slope = slopePercentBetweenDist(fs.startDist, fs.endDist);
   const speed = effectiveSpeedMps(slope);
   if(speed === null) return null;
@@ -1212,6 +1453,7 @@ function drawSlopeLabelAtMarker(x, y, padT, bottom){
 
   const dpr = devicePixelRatio || 1;
   const text = (slope >= 0 ? "+" : "") + slope.toFixed(1) + " %";
+  const eleText = route[markerIdx] && Number.isFinite(route[markerIdx].ele) ? Math.round(route[markerIdx].ele) + " m npm" : "-";
 
   ctx.save();
   ctx.font = `bold ${28*dpr}px system-ui, -apple-system, Segoe UI, sans-serif`;
@@ -1219,8 +1461,10 @@ function drawSlopeLabelAtMarker(x, y, padT, bottom){
   ctx.textBaseline = "middle";
 
   const metrics = ctx.measureText(text);
-  const boxW = metrics.width + 30*dpr;
-  const boxH = 46*dpr;
+  ctx.font = `bold ${18*dpr}px system-ui, -apple-system, Segoe UI, sans-serif`;
+  const eleMetrics = ctx.measureText(eleText);
+  const boxW = Math.max(metrics.width, eleMetrics.width) + 30*dpr;
+  const boxH = 68*dpr;
   let bx = x - boxW/2;
   let by = y + 16*dpr;
 
@@ -1247,11 +1491,15 @@ function drawSlopeLabelAtMarker(x, y, padT, bottom){
   ctx.fillStyle = "rgba(3, 7, 18, 0.90)";
   ctx.fill();
   ctx.lineWidth = 2*dpr;
-  ctx.strokeStyle = "#f59e0b";
+  ctx.strokeStyle = markerColor();
   ctx.stroke();
 
   ctx.fillStyle = "#ffffff";
-  ctx.fillText(text, bx + boxW/2, by + boxH/2 + 1*dpr);
+  ctx.font = `bold ${28*dpr}px system-ui, -apple-system, Segoe UI, sans-serif`;
+  ctx.fillText(text, bx + boxW/2, by + 24*dpr);
+  ctx.font = `bold ${18*dpr}px system-ui, -apple-system, Segoe UI, sans-serif`;
+  ctx.fillStyle = "#fde68a";
+  ctx.fillText(eleText, bx + boxW/2, by + 51*dpr);
   slopeLabelHit = {bx, by, boxW, boxH};
   ctx.restore();
 }
@@ -1266,6 +1514,7 @@ function isPositionHandle(clientX, clientY){
 }
 
 function setPositionFromClientX(clientX){
+  if(!canMovePositionManually()) return;
   if(!route.length || viewEnd <= viewStart) return;
   const rect = canvas.getBoundingClientRect();
   const xCss = clientX - rect.left;
@@ -1654,21 +1903,9 @@ function routeIndexAtOrNearDistForward50(dist){
 
 function computeForwardSlope50m(){
   if(!route || !route.length || markerIdx == null || !route[markerIdx]) return null;
-  const start = route[markerIdx].dist;
-  const end = Math.min(totalDist || start, start + 50);
-  if(end <= start + 1) return null;
-
-  const i1 = markerIdx;
-  const i2 = routeIndexAtOrNearDistForward50(end);
-  if(i2 == null || i2 === i1 || !route[i2]) return null;
-
-  const dd = route[i2].dist - route[i1].dist;
-  if(!Number.isFinite(dd) || dd <= 1) return null;
-
-  const dh = route[i2].ele - route[i1].ele;
-  if(!Number.isFinite(dh)) return null;
-
-  return 100 * dh / dd;
+  const fs = forecastStats();
+  if(!fs) return null;
+  return slopePercentBetweenDist(fs.startDist, fs.endDist);
 }
 
 function updateForwardSlope50Field(){
@@ -1693,24 +1930,17 @@ function updateInfo(gpsD=null, acc=null){
   if(timeToForecastEl) timeToForecastEl.textContent = formatDuration(forecastSeconds);
   const fsForAscent = forecastStats();
   const ascentToForecastEl = document.getElementById('ascentToForecast');
-  const ascentAfterForecastEl = document.getElementById('ascentAfterForecast');
+  const descentToForecastEl = document.getElementById('descentToForecast');
   if(ascentToForecastEl) ascentToForecastEl.textContent = formatMeters(fsForAscent ? fsForAscent.up : null);
-  if(ascentAfterForecastEl){
-    const afterStats = fsForAscent ? elevationStatsBetweenDist(fsForAscent.endDist, totalDist) : null;
-    ascentAfterForecastEl.textContent = formatMeters(afterStats ? afterStats.up : null);
-  }
+  if(descentToForecastEl) descentToForecastEl.textContent = formatMeters(fsForAscent ? fsForAscent.down : null);
   const rk = document.getElementById('roughKm');
-  if(rk) rk.textContent = roughTrack && Number.isFinite(roughTrack.dist) ? (roughTrack.dist/1000).toFixed(2)+' km' : '-';
-  const appSpeedEl = document.getElementById('appSpeed');
-  const fsForSpeed = forecastStats();
-  const forecastSlope = fsForSpeed ? slopePercentBetweenDist(fsForSpeed.startDist, fsForSpeed.endDist) : null;
-  const etaSpeed = etaSpeedKmhForSlope(forecastSlope);
-  if(appSpeedEl){
-    appSpeedEl.textContent = etaSpeed === null
-      ? '-'
-      : etaSpeed.kmh.toFixed(1) + ' km/h' + (etaSpeed.source === 'manual' ? ' ręcz.' : '');
-  }
-  document.getElementById('ele').textContent=Math.round(p.ele)+' m';
+  if(rk) rk.textContent = route[markerIdx] && Number.isFinite(route[markerIdx].dist) ? (route[markerIdx].dist/1000).toFixed(2)+' km' : '-';
+  const spreadEl = document.getElementById('timeSpread');
+  const fsForSpread = forecastStats();
+  const spreadSeconds = fsForSpread ? kalTimeSpreadSecondsBetweenDist(fsForSpread.startDist, fsForSpread.endDist) : null;
+  if(spreadEl) spreadEl.textContent = formatTimeSpread(spreadSeconds);
+  const speedsEl = document.getElementById('calSpeeds');
+  if(speedsEl) speedsEl.textContent = formatModeSpeeds();
   document.getElementById('left').textContent=fsForAscent ? ((fsForAscent.endDist - fsForAscent.startDist)/1000).toFixed(2)+' km' : '-';
   document.getElementById('eta').textContent=formatArrivalTime(forecastSeconds);
   const offEl = document.getElementById('off');
@@ -1727,6 +1957,8 @@ function updateInfo(gpsD=null, acc=null){
   updateSliderFromMarkerV54();
 
   updatePositionSliderV54();
+  updateEtaModeButtons();
+  updateGpsButtonState();
 }
 setInterval(()=>{
   if(route.length) updateInfo();
@@ -1741,10 +1973,18 @@ if(manualSpeedEl){
     updateInfo();
   });
 }
+safeAddClick('etaModeMan', ()=>setEtaMode('MAN'));
+safeAddClick('etaModeSim', ()=>setEtaMode('SIM'));
+safeAddClick('etaModeKal', ()=>setEtaMode('KAL'));
+updateEtaModeButtons();
 
 const legacySim = document.getElementById('sim');
 if(legacySim){
-  legacySim.addEventListener('input', ()=>{ markerIdx=Math.round((route.length-1)*(legacySim.value/1000)); updateInfo(); autoScrollAfterMarkerHalf(); draw(); });
+  legacySim.addEventListener('input', ()=>{
+    if(!canMovePositionManually()) return;
+    markerIdx=Math.round((route.length-1)*(legacySim.value/1000));
+    updateInfo(); autoScrollAfterMarkerHalf(); draw();
+  });
 }
 const fileInput = document.getElementById('file');
 if(fileInput && fileInput.dataset.boundGpxV54 !== "1"){
@@ -1783,24 +2023,38 @@ fileInput.addEventListener('change', async e=>{
 const gpsButton = document.getElementById('gpsBtn');
 if(gpsButton && gpsButton.dataset.boundGpsV54 !== "1"){
 gpsButton.dataset.boundGpsV54 = "1";
+updateGpsButtonState();
 gpsButton.addEventListener('click', ()=>{
   setGpsStatusV54('GPS: uruchamianie');
-  if(watchId!=null){ navigator.geolocation.clearWatch(watchId); watchId=null; statusEl.textContent='GPS zatrzymany.'; return; }
+  if(watchId!=null){
+    navigator.geolocation.clearWatch(watchId);
+    watchId=null;
+    positionDragState=null;
+    updateGpsButtonState();
+    statusEl.textContent='GPS wyłączony.';
+    return;
+  }
   trackingInitialized=false;
   updateInfo();
-  if(!navigator.geolocation){ statusEl.innerHTML='<span class="bad">Brak obsługi GPS w tej przeglądarce.</span>'; return; }
+  if(!navigator.geolocation){
+    updateGpsButtonState();
+    statusEl.innerHTML='<span class="bad">Brak obsługi GPS w tej przeglądarce.</span>';
+    return;
+  }
   watchId = navigator.geolocation.watchPosition(pos=>{
     lastGpsLat = pos.coords.latitude;
     lastGpsLon = pos.coords.longitude;
     updateRoughTrackFromGps(pos.coords.latitude, pos.coords.longitude, pos.coords.accuracy);
     const n=nearestTracked(pos.coords.latitude, pos.coords.longitude);
     markerIdx=n.idx; if(sim) sim.value=Math.round(1000*markerIdx/(route.length-1));
+    recordSimpleEtaRealPosition(route[markerIdx].dist);
     recordSpeedPosition(route[markerIdx].dist, 'gps');
     updateInfo(n.d, pos.coords.accuracy);
     autoScrollAfterMarkerHalf();
     draw();
-  }, err=>{ statusEl.innerHTML='<span class="bad">Błąd GPS: '+err.message+'</span>'; },
+  }, err=>{ statusEl.innerHTML='<span class="bad">Błąd GPS: '+err.message+'</span>'; updateGpsButtonState(); },
   {enableHighAccuracy:true, maximumAge:1000, timeout:15000});
+  updateGpsButtonState();
 });
 }
 document.getElementById('fitBtn').addEventListener('click', ()=>{ xZoom=1; yStretch=1; viewStart=0; viewEnd=totalDist; draw(); });
@@ -1822,7 +2076,7 @@ function startPinchIfPossible(){
 canvas.addEventListener('pointerdown', e=>{
   canvas.setPointerCapture(e.pointerId);
   activePointers.set(e.pointerId, {x:e.clientX, y:e.clientY});
-  if(activePointers.size === 1 && isPositionHandle(e.clientX, e.clientY)){
+  if(activePointers.size === 1 && canMovePositionManually() && isPositionHandle(e.clientX, e.clientY)){
     positionDragState={id:e.pointerId};
     setPositionFromClientX(e.clientX);
     forecastDragState=null;
@@ -2001,12 +2255,14 @@ function nearestRouteIndexByDistanceV54(distMeters){
 
 function setMarkerByDistanceV54(distMeters, source){
   if(!route || !route.length) return;
+  if(source !== "gps" && source !== "reset" && !canMovePositionManually()) return;
 
   const total = Number.isFinite(totalDist) && totalDist > 0 ? totalDist : route[route.length-1].dist;
   const d = Math.max(0, Math.min(total, Number(distMeters) || 0));
   const idx = nearestRouteIndexByDistanceV54(d);
 
   markerIdx = idx;
+  if(source === "gps") recordSimpleEtaRealPosition(route[idx].dist);
 
   // Synchronizacja zmiennych używanych przez różne wersje aplikacji.
   try { currentGpxKm = route[idx].dist / 1000; } catch(e) {}
@@ -2052,6 +2308,7 @@ function bindPositionSliderV54(){
 
   const handler = function(){
     if(suppressSliderUpdateV54) return;
+    if(!canMovePositionManually()) return;
     if(!route || !route.length) return;
     const total = Number.isFinite(totalDist) && totalDist > 0 ? totalDist : route[route.length-1].dist;
     const frac = (Number(s.value) || 0) / 1000;
@@ -2071,7 +2328,6 @@ setInterval(bindPositionSliderV54, 1500);
 
 
 // ===== v54: stabilne uruchamianie GPS =====
-let gpsWatchIdV54 = null;
 
 function setGpsStatusV54(text){
   const el = document.getElementById("status");
@@ -2086,6 +2342,7 @@ function applyGpsPositionV54(pos){
   if(!Number.isFinite(lat) || !Number.isFinite(lon)) return;
 
   setGpsStatusV54("GPS: włączony");
+  updateGpsButtonState();
 
   // Użyj istniejącej logiki projektu, jeżeli działa.
   if(typeof handleGpsPosition === "function"){
@@ -2121,17 +2378,21 @@ function applyGpsPositionV54(pos){
 function startGpsV54(){
   if(!navigator.geolocation){
     setGpsStatusV52("GPS: brak obsługi w przeglądarce");
+    updateGpsButtonState();
+    return;
+  }
+
+  if(gpsWatchIdV54 !== null){
+    navigator.geolocation.clearWatch(gpsWatchIdV54);
+    gpsWatchIdV54 = null;
+    positionDragState = null;
+    setGpsStatusV52("GPS wyłączony.");
+    updateGpsButtonState();
     return;
   }
 
   setGpsStatusV52("GPS: uruchamianie");
-
   try{
-    if(gpsWatchIdV54 !== null){
-      navigator.geolocation.clearWatch(gpsWatchIdV54);
-      gpsWatchIdV54 = null;
-    }
-
     gpsWatchIdV54 = navigator.geolocation.watchPosition(
       applyGpsPositionV54,
       err => {
@@ -2139,6 +2400,7 @@ function startGpsV54(){
       },
       {enableHighAccuracy:true, maximumAge:5000, timeout:20000}
     );
+    updateGpsButtonState();
 
     navigator.geolocation.getCurrentPosition(
       applyGpsPositionV54,
@@ -2149,6 +2411,7 @@ function startGpsV54(){
     );
   } catch(e){
     setGpsStatusV52("GPS: błąd " + e.message);
+    updateGpsButtonState();
   }
 }
 
@@ -2258,6 +2521,7 @@ function applyRouteV54(points, waypoints, sourceName){
   viewEnd = totalDist;
   forecastTargetDist=NaN;
   localStorage.removeItem('profilGpsForecastTargetDist');
+  setSimpleEtaBaseline(route[markerIdx] ? route[markerIdx].dist : 0);
 
   if(typeof xZoom !== "undefined") xZoom = 1;
   if(typeof yStretch !== "undefined") yStretch = 1;

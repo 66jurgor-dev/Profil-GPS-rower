@@ -1,4 +1,4 @@
-const CACHE_NAME = 'profil-gps-pwa-v33-forecast-distance-tile';
+const CACHE_NAME = 'profil-gps-pwa-v51-ascent-descent-to-forecast';
 const FILES = ['index.html','manifest.json','service-worker.js','trasa.js','icon.svg','icon-192.png','icon-512.png'];
 self.addEventListener('install', e => {
   self.skipWaiting();
