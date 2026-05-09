@@ -1,4 +1,4 @@
-const CACHE_NAME = 'profil-gps-pwa-v59-no-position-dot';
+const CACHE_NAME = 'profil-gps-pwa-v60-forecast-outside-zoom';
 const FILES = ['index.html','manifest.json','service-worker.js','trasa.js','icon.svg','icon-192.png','icon-512.png'];
 self.addEventListener('install', e => {
   self.skipWaiting();

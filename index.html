@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Profil trasy GPS offline v.59</title>
+<title>Profil trasy GPS offline v.60</title>
 <link rel="manifest" href="manifest.json">
 <style>
 :root { --bg:#0f172a; --panel:#111827; --text:#e5e7eb; --muted:#9ca3af; --line:#38bdf8; --accent:#f59e0b; --bad:#ef4444; --ok:#22c55e; }
@@ -218,7 +218,7 @@ label:has(input[type="file"]) {
 </head>
 <body>
 <header>
-  <h1>Profil trasy GPS offline v.59</h1>
+  <h1>Profil trasy GPS offline v.60</h1>
 </header>
 <main>
 <section class="panel">
@@ -1505,10 +1505,7 @@ function forecastStats(){
   const ratioEndDist = clamp(startDist + width*forecastOffsetRatio, startDist, totalDist);
   let endDist = ratioEndDist;
   if(Number.isFinite(forecastTargetDist)){
-    const savedDist = clamp(forecastTargetDist, startDist, totalDist);
-    if(savedDist >= viewStart - 1 && savedDist <= viewEnd + 1){
-      endDist = savedDist;
-    }
+    endDist = clamp(forecastTargetDist, startDist, totalDist);
   }
   return elevationStatsBetweenDist(startDist, endDist);
 }
