@@ -1,4 +1,4 @@
-const CACHE_NAME = 'profil-gps-pwa-v75-cache-first-mountains';
+const CACHE_NAME = 'profil-gps-pwa-v95-forecast-push-ahead';
 const FILES = ['index.html','manifest.json','service-worker.js','trasa.js','icon.svg','icon-192.png','icon-512.png'];
 self.addEventListener('install', e => {
   self.skipWaiting();
