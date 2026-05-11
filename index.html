@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Profil trasy GPS offline v.95</title>
+<title>Profil trasy GPS offline v.109</title>
 <link rel="manifest" href="manifest.json">
 <style>
 :root { --bg:#0f172a; --panel:#111827; --text:#e5e7eb; --muted:#9ca3af; --line:#38bdf8; --accent:#f59e0b; --bad:#ef4444; --ok:#22c55e; }
@@ -41,6 +41,13 @@ canvas { width:100%; height:46vh; min-height:280px; display:block; background:#0
 .speed-row { display:flex; align-items:flex-end; justify-content:space-between; gap:8px; margin-top:3px; font-size:18px; font-weight:800; }
 .speed-row .speed-values { color:#ffffff; min-width:0; overflow-wrap:anywhere; }
 .speed-row .speed-delta { color:#38bdf8; text-align:right; flex:0 0 auto; }
+.speed-row .speed-delta-label { display:block; font-size:13px; line-height:1; color:#7dd3fc; font-weight:800; }
+.speed-row .speed-delta-values { display:block; font-size:18px; line-height:1.15; }
+.steep-label { font-weight:700; }
+.steep-yellow { color:#fbbf24; }
+.steep-red { color:#ef4444; }
+.steep-values { display:block; font-size:18px; font-weight:800; margin-top:3px; }
+.steep-values span { white-space:nowrap; }
 .tile b.coord { font-size:16px; letter-spacing:0.2px; }
 .status { font-size:14px; color:var(--muted); }
 .ok { color:var(--ok); } .bad { color:var(--bad); } .accent { color:var(--accent); }
@@ -268,7 +275,7 @@ label:has(input[type="file"]) {
 </head>
 <body>
 <header>
-  <h1>Profil trasy GPS offline v.95</h1>
+  <h1>Profil trasy GPS offline v.109</h1>
 </header>
 <main>
 <section class="panel">
@@ -280,11 +287,11 @@ label:has(input[type="file"]) {
     <div class="tile">Do prognozy<b id="left">-</b></div>
     <div class="tile">Koniec o:<b id="eta">-</b></div>
     <div class="tile">Czas do:<b id="timeToForecast">-</b></div>
-    <div class="tile">Prędkości: T | A<div class="speed-row"><span id="calSpeeds" class="speed-values">-</span><span id="speedDelta" class="speed-delta">-</span></div></div>
+    <div class="tile">Prędkości: model-real<div class="speed-row"><span id="calSpeeds" class="speed-values">-</span><span class="speed-delta"><span class="speed-delta-label">T A</span><span id="speedDelta" class="speed-delta-values">-</span></span></div></div>
     <div class="tile">Niepewność rozszerzona<b id="timeSpread">BRAK</b></div>
     <div class="tile">Wznios<b id="ascentToForecast">-</b></div>
     <div class="tile">Spadek<b id="descentToForecast">-</b></div>
-    <div class="tile">Nachylenie AVG<b id="slopeForward50Value">-</b></div>
+    <div class="tile"><span class="steep-label">Strome: | </span><span class="steep-yellow">15-20%</span><span class="steep-label"> | </span><span class="steep-red">&gt;=20%</span><span class="steep-label"> |</span><span id="slopeForward50Value" class="steep-values">-</span></div>
 
     <div class="tile">Prędkość MAN [km/h]<input id="manualSpeed" class="speed-input" type="number" inputmode="decimal" min="0" step="0.1" placeholder="np. 20.0"></div>
   </div>
@@ -389,29 +396,30 @@ const ETA_DISPLAY_MAX_SAMPLES = 120;
 const REAL_MODEL_FULL_WEIGHT_KM = 20;
 const REAL_MODEL_MIN_DIST_KM = 0.5;
 const REAL_MODEL_MIN_TIME_H = 1 / 30;
-const SPEED_MODEL_CSV = `surface,slope_min,slope_max,slope_class,slope_label,n,source_count,mean_kmh,median_kmh,p25_kmh,p75_kmh,model_kmh,iqr_rel_pct,data_quality,rule_note,fallback_from
-asfalt,12.0,,+12_plus,> +12%,25,3,4.23,4.21,4.01,4.66,4.21,15.35,uzyteczna,klasa skrajna dla asfaltu; uzywac ostroznie,
-asfalt,10.0,12.0,+10_+12,+10 do +12%,32,4,5.74,4.8,4.51,5.34,4.8,17.37,dobra,standardowe okno kata,
-asfalt,5.0,10.0,+5_+10,+5 do +10%,126,5,7.26,6.87,5.79,8.41,6.87,38.03,dobra,standardowe okno kata,
-asfalt,2.0,5.0,+2_+5,+2 do +5%,215,5,9.73,9.63,8.48,11.08,9.63,26.98,dobra,standardowe okno kata,
-asfalt,0.0,2.0,+0_+2,0 do +2%,121,5,11.88,11.55,10.04,13.61,11.55,30.9,dobra,standardowe okno kata,
-asfalt,-2.0,0.0,-2_0,-2 do 0%,138,5,16.03,16.07,12.25,20.92,16.07,53.99,dobra,standardowe okno kata,
-asfalt,-5.0,-2.0,-5_-2,-5 do -2%,219,5,20.54,21.56,16.82,26.15,21.56,43.28,dobra,standardowe okno kata,
-asfalt,-10.0,-5.0,-10_-5,-10 do -5%,97,5,22.21,22.87,17.55,28.07,22.87,46.01,dobra,standardowe okno kata,
-asfalt,-12.0,-10.0,-12_-10,-12 do -10%,17,4,21.95,21.96,12.21,29.43,21.96,78.39,uzyteczna,standardowe okno kata,
-asfalt,,-12.0,-12_minus,< -12%,20,4,10.71,7.25,4.15,16.72,7.25,173.41,uzyteczna,klasa skrajna dla asfaltu; uzywac ostroznie,
-teren,20.0,,+20_plus,> +20%,23,4,2.71,2.54,2.1,2.97,2.54,34.26,uzyteczna,ostatnia klasa terenowych podjazdow,
-teren,15.0,20.0,+15_+20,+15 do +20%,58,5,3.64,3.33,3.08,4.14,3.33,31.82,dobra,standardowe okno kata,
-teren,10.0,15.0,+10_+15,+10 do +15%,181,5,4.61,4.37,3.58,5.18,4.37,36.56,dobra,standardowe okno kata,
-teren,5.0,10.0,+5_+10,+5 do +10%,289,5,5.65,5.42,4.55,6.5,5.42,36.01,dobra,standardowe okno kata,
-teren,2.0,5.0,+2_+5,+2 do +5%,164,5,7.07,6.84,5.52,8.4,6.84,42.03,dobra,standardowe okno kata,
-teren,0.0,2.0,+0_+2,0 do +2%,125,5,7.43,7.46,5.82,8.61,7.46,37.31,dobra,standardowe okno kata,
-teren,-2.0,0.0,-2_0,-2 do 0%,119,5,8.75,8.28,6.17,10.63,8.28,53.8,dobra,standardowe okno kata,
-teren,-5.0,-2.0,-5_-2,-5 do -2%,205,5,9.87,9.18,7.1,11.65,9.18,49.58,dobra,standardowe okno kata,
-teren,-10.0,-5.0,-10_-5,-10 do -5%,304,5,9.84,8.93,6.89,11.48,8.93,51.38,dobra,standardowe okno kata,
-teren,-15.0,-10.0,-15_-10,-15 do -10%,192,5,8.02,7.39,6.13,9.17,7.39,41.14,dobra,standardowe okno kata,
-teren,-20.0,-15.0,-20_-15,-20 do -15%,114,5,6.31,6.35,4.63,7.71,6.35,48.41,dobra,standardowe okno kata,
-teren,,-20.0,-20_minus,< -20%,26,5,5.18,5.34,3.88,6.29,5.34,45.03,uzyteczna,ostatnia klasa terenowych zjazdow,`;
+const SEGMENT_BREAK_GAP_M = 30;
+const SPEED_MODEL_CSV = `surface,slope_min,slope_max,slope_class,slope_label,n,source_count,p25_kmh,p75_kmh,model_kmh,data_quality,rule_note,fallback_from
+asfalt,12.0,,+12_plus,> +12%,70,6,4.048,6.806,4.655,dobra,model_kmh = średnia efektywna: suma dystansu / suma czasu; bez odrzucania wolnych odcinków,
+asfalt,10.0,12.0,+10_+12,+10 do +12%,62,7,4.455,7.938,5.642,dobra,model_kmh = średnia efektywna: suma dystansu / suma czasu; bez odrzucania wolnych odcinków,
+asfalt,5.0,10.0,+5_+10,+5 do +10%,290,8,6.7,10.701,7.639,dobra,model_kmh = średnia efektywna: suma dystansu / suma czasu; bez odrzucania wolnych odcinków,
+asfalt,2.0,5.0,+2_+5,+2 do +5%,449,8,9.095,13.294,8.826,dobra,model_kmh = średnia efektywna: suma dystansu / suma czasu; bez odrzucania wolnych odcinków,
+asfalt,0.0,2.0,+0_+2,0 do +2%,340,8,10.9,16.483,11.362,dobra,model_kmh = średnia efektywna: suma dystansu / suma czasu; bez odrzucania wolnych odcinków,
+asfalt,-2.0,0.0,-2_0,−2 do 0%,325,8,12.466,21.553,10.068,dobra,model_kmh = średnia efektywna: suma dystansu / suma czasu; bez odrzucania wolnych odcinków,
+asfalt,-5.0,-2.0,-5_-2,−5 do −2%,443,8,17.046,26.281,14.995,dobra,model_kmh = średnia efektywna: suma dystansu / suma czasu; bez odrzucania wolnych odcinków,
+asfalt,-10.0,-5.0,-10_-5,−10 do −5%,235,8,18.322,28.419,17.754,dobra,model_kmh = średnia efektywna: suma dystansu / suma czasu; bez odrzucania wolnych odcinków,
+asfalt,-12.0,-10.0,-12_-10,−12 do −10%,31,7,15.616,28.672,18.319,dobra,model_kmh = średnia efektywna: suma dystansu / suma czasu; bez odrzucania wolnych odcinków,
+asfalt,,-12.0,-12_minus,< −12%,40,6,5.086,18.806,7.186,dobra,model_kmh = średnia efektywna: suma dystansu / suma czasu; bez odrzucania wolnych odcinków,
+teren,20.0,,+20_plus,> +20%,40,8,2.278,3.467,1.893,dobra,model_kmh = średnia efektywna: suma dystansu / suma czasu; bez odrzucania wolnych odcinków,
+teren,15.0,20.0,+15_+20,+15 do +20%,101,9,3.087,4.161,2.788,dobra,model_kmh = średnia efektywna: suma dystansu / suma czasu; bez odrzucania wolnych odcinków,
+teren,10.0,15.0,+10_+15,+10 do +15%,299,9,3.67,5.522,4.293,dobra,model_kmh = średnia efektywna: suma dystansu / suma czasu; bez odrzucania wolnych odcinków,
+teren,5.0,10.0,+5_+10,+5 do +10%,502,9,4.52,6.75,4.954,dobra,model_kmh = średnia efektywna: suma dystansu / suma czasu; bez odrzucania wolnych odcinków,
+teren,2.0,5.0,+2_+5,+2 do +5%,381,9,5.898,8.647,4.276,dobra,model_kmh = średnia efektywna: suma dystansu / suma czasu; bez odrzucania wolnych odcinków,
+teren,0.0,2.0,+0_+2,0 do +2%,231,9,5.902,9.492,6.183,dobra,model_kmh = średnia efektywna: suma dystansu / suma czasu; bez odrzucania wolnych odcinków,
+teren,-2.0,0.0,-2_0,−2 do 0%,243,9,6.333,11.044,6.291,dobra,model_kmh = średnia efektywna: suma dystansu / suma czasu; bez odrzucania wolnych odcinków,
+teren,-5.0,-2.0,-5_-2,−5 do −2%,401,9,7.561,13.014,7.971,dobra,model_kmh = średnia efektywna: suma dystansu / suma czasu; bez odrzucania wolnych odcinków,
+teren,-10.0,-5.0,-10_-5,−10 do −5%,531,9,7.396,12.572,7.329,dobra,model_kmh = średnia efektywna: suma dystansu / suma czasu; bez odrzucania wolnych odcinków,
+teren,-15.0,-10.0,-15_-10,−15 do −10%,306,9,6.023,9.266,4.986,dobra,model_kmh = średnia efektywna: suma dystansu / suma czasu; bez odrzucania wolnych odcinków,
+teren,-20.0,-15.0,-20_-15,−20 do −15%,169,9,3.973,7.571,4.983,dobra,model_kmh = średnia efektywna: suma dystansu / suma czasu; bez odrzucania wolnych odcinków,
+teren,,-20.0,-20_minus,< −20%,57,9,2.975,6.255,3.568,dobra,model_kmh = średnia efektywna: suma dystansu / suma czasu; bez odrzucania wolnych odcinków,`;
 
 function formatCoordValue(value, digitsBefore){
   if(!Number.isFinite(value)) return '-';
@@ -789,7 +797,7 @@ function prepare(points){
   route = points.filter(p => Number.isFinite(p.lat) && Number.isFinite(p.lon));
   let d=0;
   for(let i=0;i<route.length;i++){
-    if(i>0) d += hav(route[i-1], route[i]);
+    if(i>0 && !route[i]._breakBefore) d += hav(route[i-1], route[i]);
     route[i].dist = d;
     if(!Number.isFinite(route[i].ele)) route[i].ele = i>0 ? route[i-1].ele : 0;
   }
@@ -949,10 +957,13 @@ function orderedSurfaceRoute(segments){
   }
   const points = [];
   for(const seg of (best || usable)){
-    for(const p of seg){
+    for(let i=0; i<seg.length; i++){
+      const p = seg[i];
       const last = points[points.length - 1];
       if(last && hav(last, p) < 1) continue;
-      points.push(Object.assign({}, p));
+      const clone = Object.assign({}, p);
+      if(last && i === 0 && hav(last, p) > SEGMENT_BREAK_GAP_M) clone._breakBefore = true;
+      points.push(clone);
     }
   }
   return points;
@@ -1165,6 +1176,17 @@ function visibleRoute(){
   if(!route.length) return [];
   return route.filter(p => p.dist>=viewStart && p.dist<=viewEnd);
 }
+function samplesBetweenDist(startDist, endDist){
+  if(!route.length) return [];
+  startDist = clamp(startDist, 0, totalDist);
+  endDist = clamp(endDist, 0, totalDist);
+  const samples = [routeSampleAtDist(startDist)];
+  for(const p of route){
+    if(p.dist > startDist && p.dist < endDist) samples.push(p);
+  }
+  samples.push(routeSampleAtDist(endDist));
+  return samples.filter(Boolean);
+}
 function markerColor(){
   if(!isGpsActive()) return '#94a3b8';
   if(lastGpsDistance==null) return '#94a3b8';
@@ -1191,6 +1213,7 @@ function elevationAtDist(targetDist){
   const i = lo;
   if(i <= 0) return route[0].ele;
   const a = route[i-1], b = route[i];
+  if(b._breakBefore) return b.ele;
   const span = Math.max(0.001, b.dist - a.dist);
   const f = (targetDist - a.dist) / span;
   return a.ele + f * (b.ele - a.ele);
@@ -1358,10 +1381,15 @@ function slopePercentBetweenDist(startDist, endDist){
   if(!route.length) return null;
   const span = endDist - startDist;
   if(!Number.isFinite(span) || Math.abs(span) < 1) return null;
-  const e1 = elevationAtDist(startDist);
-  const e2 = elevationAtDist(endDist);
-  if(e1 === null || e2 === null || !Number.isFinite(e1) || !Number.isFinite(e2)) return null;
-  return 100 * (e2 - e1) / span;
+  const samples = samplesBetweenDist(startDist, endDist);
+  if(samples.length < 2) return null;
+  let delta = 0;
+  for(let i=1; i<samples.length; i++){
+    if(samples[i]._breakBefore) continue;
+    const d = samples[i].ele - samples[i-1].ele;
+    if(Number.isFinite(d)) delta += d;
+  }
+  return 100 * delta / span;
 }
 function surfaceAtDist(targetDist){
   if(!route.length) return 'teren';
@@ -1661,13 +1689,17 @@ function formatModeSpeeds(){
   }
   return formatKalSpeeds();
 }
-function formatOverallSpeedDelta(){
-  const correction = realModelCorrectionStats();
-  if(!correction || !Number.isFinite(correction.realHours) || !Number.isFinite(correction.modelHours) || correction.realHours <= 0 || correction.modelHours <= 0) return '-';
-  const diffPct = ((correction.modelHours / correction.realHours) - 1) * 100;
+function formatSpeedDeltaForSurface(surface){
+  const cmp = realModelSurfaceComparison();
+  const s = cmp && cmp[surface];
+  if(!s || s.distKm <= 0 || s.realHours <= 0 || s.modelHours <= 0) return '-';
+  const diffPct = ((s.modelHours / s.realHours) - 1) * 100;
   if(!Number.isFinite(diffPct)) return '-';
   const arrow = diffPct >= 0 ? '↑' : '↓';
   return arrow + Math.abs(Math.round(diffPct)) + '%';
+}
+function formatSurfaceSpeedDeltas(){
+  return formatSpeedDeltaForSurface('teren') + ' ' + formatSpeedDeltaForSurface('asfalt');
 }
 function parseCsvLine(line){
   const out = [];
@@ -1713,7 +1745,6 @@ function parseSpeedModelCsv(text){
       slopeLabel:String(cols[idx('slope_label')] || '').trim(),
       n:parseNumberOrNull(cols[idx('n')]) || 0,
       modelKmh,
-      medianKmh:parseNumberOrNull(cols[idx('median_kmh')]),
       p25Kmh:p25,
       p75Kmh:p75,
       uncertaintyKmh,
@@ -2203,11 +2234,13 @@ function drawProfileSurfaceLine(x, y){
     if(points.length < 2) return;
     ctx.lineWidth = 2.2 * devicePixelRatio * widthFactor;
     ctx.beginPath();
+    let hasLine = false;
     for(let i=0;i<points.length;i++){
       const xx = x(points[i]), yy = y(points[i]);
-      if(i === 0) ctx.moveTo(xx, yy);
-      else ctx.lineTo(xx, yy);
+      if(i === 0 || points[i]._breakBefore) ctx.moveTo(xx, yy);
+      else { ctx.lineTo(xx, yy); hasLine = true; }
     }
+    if(!hasLine) return;
     ctx.strokeStyle = color;
     ctx.stroke();
   }
@@ -2223,27 +2256,36 @@ function drawProfileSurfaceLine(x, y){
     strokeSamples(segSamples, '#94a3b8');
   }
 
-  let steepRun = [];
-  let steepRunDist = 0;
-  function flushSteepRun(){
-    if(steepRun.length >= 2 && steepRunDist >= 20) strokeSamples(steepRun, '#ef4444', 1.25);
-    steepRun = [];
-    steepRunDist = 0;
-  }
-  for(let i=1;i<samples.length;i++){
-    const a = samples[i-1], b = samples[i];
-    const dd = b.dist - a.dist;
-    const slope = dd > 0 ? 100 * (b.ele - a.ele) / dd : null;
-    const steep = dd > 0 && Math.abs(slope) >= 15 && !intervalTouchesAsphalt(a.dist, b.dist);
-    if(steep){
-      if(!steepRun.length) steepRun.push(a);
-      steepRun.push(b);
-      steepRunDist += dd;
-    } else {
-      flushSteepRun();
+  function strokeSlopeRuns(minAbsSlope, maxAbsSlope, color){
+    let run = [];
+    let runDist = 0;
+    const flush = () => {
+      if(run.length >= 2 && runDist >= 20) strokeSamples(run, color, 1.25);
+      run = [];
+      runDist = 0;
+    };
+    for(let i=1;i<samples.length;i++){
+      const a = samples[i-1], b = samples[i];
+      const dd = b.dist - a.dist;
+      const slope = dd > 0 ? 100 * (b.ele - a.ele) / dd : null;
+      const absSlope = Math.abs(slope);
+      const steep = !b._breakBefore
+        && dd > 0
+        && absSlope >= minAbsSlope
+        && (maxAbsSlope === null || absSlope < maxAbsSlope)
+        && !intervalTouchesAsphalt(a.dist, b.dist);
+      if(steep){
+        if(!run.length) run.push(a);
+        run.push(b);
+        runDist += dd;
+      } else {
+        flush();
+      }
     }
+    flush();
   }
-  flushSteepRun();
+  strokeSlopeRuns(15, 20, '#fbbf24');
+  strokeSlopeRuns(20, null, '#ef4444');
 
   ctx.save();
   ctx.strokeStyle = '#ffffff';
@@ -2273,6 +2315,7 @@ function routeSampleAtDist(targetDist){
   for(let i=1;i<route.length;i++){
     const a=route[i-1], b=route[i];
     if(b.dist >= targetDist){
+      if(b._breakBefore) return {...b, dist:targetDist};
       const span = Math.max(1e-9, b.dist-a.dist);
       const f = (targetDist-a.dist)/span;
       return {
@@ -2325,14 +2368,11 @@ function elevationStatsBetweenDist(startDist, endDist){
   endDist = clamp(endDist, 0, totalDist);
   if(endDist <= startDist + 1) return {startDist, endDist, up:0, down:0};
 
-  const samples = [routeSampleAtDist(startDist)];
-  for(const p of route){
-    if(p.dist > startDist && p.dist < endDist) samples.push(p);
-  }
-  samples.push(routeSampleAtDist(endDist));
+  const samples = samplesBetweenDist(startDist, endDist);
 
   let up=0, down=0;
   for(let i=1;i<samples.length;i++){
+    if(samples[i]._breakBefore) continue;
     const d = samples[i].ele - samples[i-1].ele;
     if(d>0) up += d;
     else down += -d;
@@ -2868,21 +2908,48 @@ function routeIndexAtOrNearDistForward50(dist){
   return best;
 }
 
-function computeForwardSlope50m(){
+function computeSteepMetersToForecast(){
   if(!route || !route.length || markerIdx == null || !route[markerIdx]) return null;
   const fs = forecastStats();
   if(!fs) return null;
-  return slopePercentBetweenDist(fs.startDist, fs.endDist);
+  const samples = samplesBetweenDist(fs.startDist, fs.endDist);
+  if(samples.length < 2) return {yellowUp:0, yellowDown:0, redUp:0, redDown:0};
+  let yellowUp = 0;
+  let yellowDown = 0;
+  let redUp = 0;
+  let redDown = 0;
+  for(let i=1; i<samples.length; i++){
+    const a = samples[i-1];
+    const b = samples[i];
+    if(b._breakBefore) continue;
+    const dd = b.dist - a.dist;
+    if(!Number.isFinite(dd) || dd <= 0) continue;
+    if(intervalTouchesAsphalt(a.dist, b.dist)) continue;
+    const slope = 100 * (b.ele - a.ele) / dd;
+    const absSlope = Math.abs(slope);
+    if(absSlope >= 20){
+      if(slope >= 0) redUp += dd;
+      else redDown += dd;
+    } else if(absSlope >= 15){
+      if(slope >= 0) yellowUp += dd;
+      else yellowDown += dd;
+    }
+  }
+  return {yellowUp, yellowDown, redUp, redDown};
 }
 
 function updateForwardSlope50Field(){
   const el = document.getElementById("slopeForward50Value");
   if(!el) return;
-  const slope = computeForwardSlope50m();
-  if(slope === null || !Number.isFinite(slope)){
+  const steep = computeSteepMetersToForecast();
+  if(!steep){
     el.textContent = "-";
   } else {
-    el.textContent = (slope >= 0 ? "+" : "") + slope.toFixed(1) + " %";
+    el.innerHTML =
+      '<span class="steep-yellow">↑' + Math.round(steep.yellowUp) + ' m</span> ' +
+      '<span class="steep-yellow">↓' + Math.round(steep.yellowDown) + ' m</span> | ' +
+      '<span class="steep-red">↑' + Math.round(steep.redUp) + ' m</span> ' +
+      '<span class="steep-red">↓' + Math.round(steep.redDown) + ' m</span>';
   }
 }
 
@@ -2909,7 +2976,7 @@ function updateInfo(gpsD=null, acc=null, forceEta=false){
   const speedsEl = document.getElementById('calSpeeds');
   if(speedsEl) speedsEl.textContent = formatModeSpeeds();
   const speedDeltaEl = document.getElementById('speedDelta');
-  if(speedDeltaEl) speedDeltaEl.textContent = formatOverallSpeedDelta();
+  if(speedDeltaEl) speedDeltaEl.textContent = formatSurfaceSpeedDeltas();
   document.getElementById('left').textContent=fsForAscent ? ((fsForAscent.endDist - fsForAscent.startDist)/1000).toFixed(2)+' km' : '-';
   document.getElementById('eta').textContent=formatArrivalTimeFromBase(forecastSeconds, etaDisplayState.baseTime);
   const offEl = document.getElementById('off');
